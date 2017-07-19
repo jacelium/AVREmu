@@ -27,6 +27,12 @@
     <ClCompile Include="opset.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="plugin.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="avrinstructionset.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="memory.h">
@@ -38,5 +44,22 @@
     <ClInclude Include="opset.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="plugin.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="AVRInstructionSet.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="EmulatorIF.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="PluginIF.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="program.hex">
+      <Filter>Resource Files</Filter>
+    </None>
   </ItemGroup>
 </Project>

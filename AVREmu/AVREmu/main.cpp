@@ -4,45 +4,313 @@
 #include <bitset>
 #include <vector>
 #include <stdexcept>
+#include <cstdint>
+#include "AVRInstructionSet.h"
+#include <fstream>
+
+typedef std::pair<int, std::string> test_item;
+
+word make_add(byte r, byte d) {
+	return 0x0000;
+} 
+
+void dumpRaw(Memory * mem, int start, int count) {
+	std::vector<byte> results = mem->dumpRaw(start, count);
+	std::cout << "[Host] Dumping " << count << " bytes starting at 0x" << start << ":" << std::endl;
+	int col = 0, cols = 8;
+
+	for (auto i = results.begin(); i != results.end(); i++) {
+		if (col++ % cols == 0) { std::cout << std::endl << "\t"; } // line breaks
+
+		std::bitset<8> x(*i);
+		std::cout << x << " ";
+	}
+	std::cout << std::endl << std::endl;
+}
+
+class TestPlugin : public Plugin {
+	void generateState() {
+		if (!this->busy()) {
+			//std::cout << "Plugin " << id << " generating new state." << std::endl;
+			//commit(5);
+		}
+	}
+	void applyState() {
+		if (!this->busy()) {
+			//std::cout << "Plugin " << id << " applying new state." << std::endl;
+		}
+	}
+};
 
 void main() {
-	Memory test(512);
-	
-	test.writeMemory(Memory::r3, 0x0C); // 00001100 // add r0 to r1 
-	test.writeMemory(Memory::r2, 0x10); // 00010001
+	Memory mem(0xFFFF);
+	AVRInstructionSet instructionSet;
+	TestPlugin testPlugin;
 
-	test.writeMemory(Memory::r5, 0x2c); // 00101100 // mov r1 to r14
-	test.writeMemory(Memory::r4, 0xe1); // 11100001
+	Emulator emulator(&mem);
+	emulator.configure(Emulator::VERBOSE, false);
 
-	test.writeMemory(Memory::r7, 0x0C); // add r0 to r1
-	test.writeMemory(Memory::r6, 0x10);
-	
-	test.writeMemory(Memory::r9, 0x2c); // 00101100 // mov r1 to r15
-	test.writeMemory(Memory::r8, 0xf1); // 11110001
+	emulator.clockSubscribe(&testPlugin);
+	emulator.clockSubscribe(&instructionSet);
 
-	test.writeMemory(Memory::r11, 0x94); // 10010100 // IJMP (jump to address in Z)
-	test.writeMemory(Memory::r10, 0x09); // 00001001
+	int8_t tests[] = { 
+		100, 10,	// 2 positives
+		-90, -10,	// 2 negatives
+		16, -4,		// One positive, one negative
+		128, 1,		// overflow
+		-128, -1, 	// underflow
+		127, 127,
+		-128, -128
+	};
 
-	test.writeMemory(Memory::r1, 'b'); // source data, in r0
-	test.writeMemory(Memory::r0, 1); // destination, r1
+	/*for (int i = 0; i <= 12; i += 2) {
+		// cast to unsigned, extend, then cast back to signed
 
-	test.setRegister(Memory::ZH, 0x00);
-	test.setRegister(Memory::ZL, 0x02);
+		//word test3 = (word)tests[i] + (word)tests[i + 1];
+		word test4 = (word)((uint8_t)tests[i] + (uint8_t)tests[i + 1]);
 
-	//test.dumpRaw(0, 16);
+		std::cout << "Test:         " << std::bitset<8>(tests[i]) << " " << (int)tests[i] << std::endl <<
+			"              " << std::bitset<8>(tests[i + 1]) << " " << (int)tests[i+1] << std::endl;
 
-	Emulator testEmu(&test);
-	testEmu.setPC(0x02);
+	//	std::cout << "Word: " << std::bitset<16>(test3) << std::endl;
+		std::cout << "sint: " << std::bitset<16>(test4) << " " << (int)test4 << " " << std::bitset<16>((byte)test4) << " " << (byte)test4 << std::endl;
+		std::cout << std::endl;
+	}*/
 
-	int x = 50;
 
-	while (x > 0) {
-		testEmu.step();
+	int testCase = 1;
 
-		x--;
+	if (testCase == 0) {
+		// ADD, MOV, IJMP
+
+		//mem.writeByte(AVRInstructionSet::r1, 'b'); // destination, in r1
+		//mem.writeByte(AVRInstructionSet::r0, 1); // source data, r0
+
+		mem.writeWord(AVRInstructionSet::r0, 0x6201);
+
+		// 0000110000010000 - add r0 to r1
+		mem.writeWord(AVRInstructionSet::r2, 0x0C10);
+
+		// 1110000100101100 - mov r1 to r14
+		mem.writeWord(AVRInstructionSet::r4, 0x2CE1);
+
+		// 0000110000010001 - add r0 to r1
+		mem.writeWord(AVRInstructionSet::r6, 0x0C10);
+
+		// 0010110011110001 - mov r1 to r15
+		mem.writeWord(AVRInstructionSet::r8, 0x2CF1);
+
+		// 1001010 000001001 // IJMP (jump to address in Z)
+		mem.writeWord(AVRInstructionSet::r10, 0x9409);
+
+		mem.writeWord(AVRInstructionSet::r14, 0xFFFF);
+
+		byte ZH = 0x00, ZL = 0x02;
+		word addr = 0x0002; 
+
+		mem.writeWord(AVRInstructionSet::rZ, addr); // JMP address; 0x02
+
+		dumpRaw(&mem, 0, 16);
+
+		emulator.setPC(0x02);
+		int x = 32;
+		for (int i = 0; i < x; i++) emulator.step();
+		//emulator.run();
+
+		dumpRaw(&mem, 0, 16);
+		std::cout << std::bitset<8>(mem.readByte(0x0e)) << " " << mem.readByte(0x0e) << std::endl;
+		std::cout << std::bitset<8>(mem.readByte(0x0f)) << " " << mem.readByte(0x0f) << std::endl;
 	}
-	test.dumpRaw(0, 16);
-	std::cout << std::bitset<8>(test.readMemory(0x0e)) << " " << test.readMemory(0x0e) << std::endl;
-	std::cout << std::bitset<8>(test.readMemory(0x0f)) << " " << test.readMemory(0x0f) << std::endl;
+	else if (testCase == 1) {
+		// ADD, MOV, IJMP from file
+
+		std::cout <<
+			"Test program: Writes 1 to 0x00, 'c' to 0x01 and 0x0002 to" << std::endl <<
+			"              the Z register, sets PC to 0x02, then steps" << std::endl <<
+			"              through the following loop for 15 cycles:" << std::endl << std::endl <<
+			"                  ADD 0x00, 0x01" << std::endl <<
+			"                  MOV 0x01, 0x0E" << std::endl <<
+			"                  ADD 0x00, 0x01" << std::endl <<
+			"                  MOV 0x01, 0x0F" << std::endl <<
+			"                  IJMP Z" << std::endl << std::endl;
+
+		emulator.loadProgram(".\\program.hex");
+
+		dumpRaw(&mem, 0, 16);
+
+		emulator.setPC(0x02);
+
+		int x = 15;
+		for (int i = 0; i < x; i++) {
+
+			emulator.step();
+		}
+
+		dumpRaw(&mem, 0, 16);
+		std::cout << "0x0E: " << std::bitset<8>(mem.readByte(0x0e)) << " " << mem.readByte(0x0e) << std::endl;
+		std::cout << "0x0F: " << std::bitset<8>(mem.readByte(0x0f)) << " " << mem.readByte(0x0f) << std::endl;
+	}
+	else if (testCase == 2) {
+		//STS, LDS
+
+		mem.writeByte(AVRInstructionSet::r0, 0xbb); // payload
+		mem.writeWord(AVRInstructionSet::rZ, 0xF0); // STS address in Z
+		mem.writeWord(AVRInstructionSet::rY, 0xF0); // LDS address in Y
+
+		//100100sdddddyXXX
+
+		//1001001000000000 - STS r0 -> i
+		mem.writeWord(AVRInstructionSet::r2, 0x9200);
+		mem.writeWord(AVRInstructionSet::r4, AVRInstructionSet::r12);
+
+		//1001000000010000 - LDS i -> r1
+		mem.writeWord(AVRInstructionSet::r6, 0x9010);
+		mem.writeWord(AVRInstructionSet::r8, AVRInstructionSet::r12);
+
+		mem.writeWord(AVRInstructionSet::r10, 0xFFFF);
+
+		dumpRaw(&mem, 0, 16);
+		dumpRaw(&mem, 0xF0, 1);
+
+		emulator.setPC(0x02);
+		emulator.run();
+
+		dumpRaw(&mem, 0, 16);
+		std::cout << "0x01: " << " " << mem.readByte(0x01) << std::endl;
+		std::cout << "r12: " << " " << mem.readByte(AVRInstructionSet::r12) << std::endl;
+		std::cout << mem.readBit(0x0e, 3) << mem.readBit(0x0e, 2) << mem.readBit(0x0e, 1) << mem.readBit(0x0e, 0) << std::endl;
+	}
+	else if (testCase == 3) {
+		mem.writeWord(AVRInstructionSet::r0, 0x9408);
+		mem.writeWord(AVRInstructionSet::r2, 0x9488);
+
+		dumpRaw(&mem, 0, 4);
+		dumpRaw(&mem, 0x5F, 1);
+
+		emulator.setPC(0x00);
+		emulator.tick();
+		emulator.tick();
+		emulator.tick();
+		emulator.tick();
+
+
+		dumpRaw(&mem, 0x5F, 1);
+		emulator.tick();
+		dumpRaw(&mem, 0x5F, 1);
+
+	}
+	else
+	{
+		std::vector<std::string> dividers;
+
+		dividers.push_back("==== LDST_INDIRECT (11111100) family (indirect ST/LD, LPM, POP/PUSH): ====");
+		dividers.push_back("==== MUL_ETC family: (MOVW, MULS...) ====");
+		dividers.push_back("==== MISC family: (RET/SLEEP/BREAK etc) ====");
+		dividers.push_back("==== UNARY family: (COM, NEG, etc) ====");
+		dividers.push_back("==== ADD etc family: (ADD/ADC/SUB/SBC etc.) ====");
+		dividers.push_back("==== K-series family: (CPI/SBC/ORI/ANDI) ====");
+		dividers.push_back("==== K-JMP/CALL family: ====");
+
+		std::vector<test_item> samples;
+
+		samples.push_back(test_item(0x00, ""));
+		samples.push_back(test_item(0x9200, "STS R0 -> i"));
+		samples.push_back(test_item(0x9010, "LDS i -> r1"));
+		samples.push_back(test_item(0x9201, "ST thru Z+"));
+		samples.push_back(test_item(0x9209, "ST thru Y+"));
+		samples.push_back(test_item(0x9001, "LD thru Z+"));
+		samples.push_back(test_item(0x9009, "LD thru Y+"));
+		samples.push_back(test_item(0x9202, "ST thru -Z"));
+		samples.push_back(test_item(0x920A, "ST thru -Y"));
+		samples.push_back(test_item(0x9002, "LD thru -Z"));
+		samples.push_back(test_item(0x900A, "LD thru -Y"));
+		samples.push_back(test_item(0x9004, "LPM Z"));
+		samples.push_back(test_item(0x9006, "ELPM Z"));
+		samples.push_back(test_item(0x9005, "LPM Z+"));
+		samples.push_back(test_item(0x9007, "ELPM Z+"));
+		samples.push_back(test_item(0x900F, "POP"));
+		samples.push_back(test_item(0x920F, "PUSH"));
+		samples.push_back(test_item(0x9204, "XCH"));
+		samples.push_back(test_item(0x9205, "LAS"));
+		samples.push_back(test_item(0x9206, "LAC"));
+		samples.push_back(test_item(0x9207, "LAT"));
+		
+
+		samples.push_back(test_item(0x01, ""));
+		samples.push_back(test_item(0x0100, "MOVW"));
+		samples.push_back(test_item(0x0200, "MULS"));
+		samples.push_back(test_item(0x0300, "MULSU"));
+		samples.push_back(test_item(0x0308, "FMUL"));
+		samples.push_back(test_item(0x0380, "FMULS"));
+		samples.push_back(test_item(0x0388, "FMULSU"));
+
+		samples.push_back(test_item(0x02, ""));
+		samples.push_back(test_item(0x9508, "RET"));
+		samples.push_back(test_item(0x9518, "RETI"));
+		samples.push_back(test_item(0x9588, "SLEEP"));
+		samples.push_back(test_item(0x9598, "BREAK"));
+		samples.push_back(test_item(0x95A8, "WDR"));
+		samples.push_back(test_item(0x95C8, "LPM"));
+		samples.push_back(test_item(0x95D8, "ELPM"));
+		samples.push_back(test_item(0x95E8, "SPM"));
+		samples.push_back(test_item(0x95F8, "SPM_ZP"));
+
+		samples.push_back(test_item(0x03, ""));
+		samples.push_back(test_item(0x9500, "COM"));
+		samples.push_back(test_item(0x9501, "NEG"));
+		samples.push_back(test_item(0x9502, "SWAP"));
+		samples.push_back(test_item(0x9503, "INC"));
+		samples.push_back(test_item(0x9505, "ASR"));
+		samples.push_back(test_item(0x9506, "LSR"));
+		samples.push_back(test_item(0x9507, "ROR"));
+
+		samples.push_back(test_item(0x04, ""));
+		samples.push_back(test_item(0x0400, "CPC"));
+		samples.push_back(test_item(0x1400, "CP"));
+		samples.push_back(test_item(0x0800, "SBC"));
+		samples.push_back(test_item(0x1800, "SUB"));
+		samples.push_back(test_item(0x1C01, "ADC"));
+		samples.push_back(test_item(0x0C01, "ADD"));
+		samples.push_back(test_item(0x1C00, "ROL"));
+		samples.push_back(test_item(0x0C00, "LSL"));
+		samples.push_back(test_item(0x1000, "CPSE"));
+		samples.push_back(test_item(0x2000, "AND"));
+		samples.push_back(test_item(0x2400, "EOR"));
+		samples.push_back(test_item(0x2800, "OR"));
+		samples.push_back(test_item(0x2C00, "MOV"));
+
+		samples.push_back(test_item(0x05, ""));
+		samples.push_back(test_item(0x3000, "CPI")); // :/
+		samples.push_back(test_item(0x4000, "SBCI"));
+		samples.push_back(test_item(0x5000, "SUBI"));
+		samples.push_back(test_item(0x6000, "ORI"));
+		samples.push_back(test_item(0x7000, "ANDI"));
+
+		samples.push_back(test_item(0x9509, "INDZ"));
+		samples.push_back(test_item(0x9409, "IJMPZ"));
+		samples.push_back(test_item(0x9519, "EINDZ"));
+		samples.push_back(test_item(0x9419, "EIJMPZ"));
+		samples.push_back(test_item(0x940A, "DEC"));
+		samples.push_back(test_item(0x940B, "DES"));
+		samples.push_back(test_item(0x940E, "CALL ABS22"));
+		samples.push_back(test_item(0x940C, "JMP ABS22"));
+
+		//samples.push_back(test_item(, ""));
+
+		for (unsigned int i = 0; i < samples.size(); i++) {
+			int first = samples.at(i).first;
+			std::string second = samples.at(i).second;
+
+			if (second == "") std::cout << std::endl << dividers.at(first) << std::endl;
+			else {
+				std::cout << second << std::endl;
+				mem.writeWord(0xF00, first);
+				emulator.setPC(0xF00);
+				emulator.step();
+			}
+		}
+	}
+
+	std::cout << std::endl;
 	system("pause");
 }
