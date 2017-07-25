@@ -12,6 +12,7 @@ public:
 	virtual void generateState();
 	virtual void applyState();
 	void commit(unsigned int cycles);
+	void uncommit();
 	bool busy();
 	void registerHost(Emulator * host, unsigned int id);
 	void log(std::string msg);

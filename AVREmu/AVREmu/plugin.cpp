@@ -12,6 +12,11 @@ void Plugin::commit(unsigned int cycles) {
 	this->busycount = ++cycles;
 }
 
+void Plugin::uncommit() {
+	std::cout << "[" << id << "] Uncommitting." << std::endl;
+	this->busycount = 0;
+}
+
 void Plugin::tick() {
 	if (!this->busy()) {
 		this->generateState();

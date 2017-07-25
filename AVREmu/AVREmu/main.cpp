@@ -48,7 +48,7 @@ void main() {
 	TestPlugin testPlugin;
 
 	Emulator emulator(&mem);
-	emulator.configure(Emulator::VERBOSE, false);
+	emulator.configure(Emulator::VERBOSE, true);
 
 	emulator.clockSubscribe(&testPlugin);
 	emulator.clockSubscribe(&instructionSet);
@@ -138,7 +138,7 @@ void main() {
 
 		dumpRaw(&mem, 0, 16);
 
-		emulator.setPC(0x02);
+		emulator.setPC(0x02); // ( * instructionWidth)
 
 		int x = 15;
 		for (int i = 0; i < x; i++) {
@@ -198,6 +198,11 @@ void main() {
 		emulator.tick();
 		dumpRaw(&mem, 0x5F, 1);
 
+	}
+	else if (testCase == 4) {
+		mem.writeWord(0x00, 0xFFFF);
+		emulator.run();
+		system("pause");
 	}
 	else
 	{
