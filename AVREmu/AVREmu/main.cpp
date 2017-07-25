@@ -42,16 +42,35 @@ class TestPlugin : public Plugin {
 	}
 };
 
+class IOPort : public Plugin {
+public:
+	std::string name;
+	word addr;
+
+	IOPort(std::string name, word addr) {
+		this->name = name;
+		this->addr = addr;
+	}
+
+	void generateState() {
+	}
+	void applyState() {
+		std::cout << "[" << name << "] " << std::bitset<8>(host->readByte(addr)) << std::endl;
+	}
+};
+
 void main() {
 	Memory mem(0xFFFF);
 	AVRInstructionSet instructionSet;
 	TestPlugin testPlugin;
+	IOPort portB("PortB", 0x25);
 
 	Emulator emulator(&mem);
 	emulator.configure(Emulator::VERBOSE, true);
 
-	emulator.clockSubscribe(&testPlugin);
+	//emulator.clockSubscribe(&testPlugin);
 	emulator.clockSubscribe(&instructionSet);
+	//emulator.clockSubscribe(&portB);
 
 	int8_t tests[] = { 
 		100, 10,	// 2 positives
@@ -78,7 +97,7 @@ void main() {
 	}*/
 
 
-	int testCase = 1;
+	int testCase = 6;
 
 	if (testCase == 0) {
 		// ADD, MOV, IJMP
@@ -204,6 +223,134 @@ void main() {
 		emulator.run();
 		system("pause");
 	}
+	else if (testCase == 5) {
+		
+		//mem.setBit(0x5F, 2);
+
+		mem.writeWord(0x00, 0xF40A); // BRNE 1
+		mem.writeWord(0x02, 0x9598); // BREAK
+		mem.writeWord(0x04, 0x9598); // BREAK
+		emulator.run();
+
+		system("pause");
+	}
+	else if (testCase == 6) {
+//		emulator.loadProgram(".\\test2", 0x72);
+
+		mem.writeWord(0x00, 0x940c);
+		mem.writeWord(0x02, 0x0034);
+		mem.writeWord(0x04, 0x940c);
+		mem.writeWord(0x06, 0x0034);
+		mem.writeWord(0x08, 0x940c);
+		mem.writeWord(0x0A, 0x0034);
+		mem.writeWord(0x0C, 0x940c);
+		mem.writeWord(0x0E, 0x0034);
+		mem.writeWord(0x10, 0x940c);
+		mem.writeWord(0x12, 0x0034);
+		mem.writeWord(0x14, 0x940c);
+		mem.writeWord(0x16, 0x0034);
+		mem.writeWord(0x18, 0x940c);
+		mem.writeWord(0x1A, 0x0034);
+		mem.writeWord(0x1C, 0x940c);
+		mem.writeWord(0x1E, 0x0034);
+		mem.writeWord(0x20, 0x940c);
+		mem.writeWord(0x22, 0x0034);
+		mem.writeWord(0x24, 0x940c);
+		mem.writeWord(0x26, 0x0034);
+		mem.writeWord(0x28, 0x940c);
+		mem.writeWord(0x2A, 0x0034);
+		mem.writeWord(0x2C, 0x940c);
+		mem.writeWord(0x2E, 0x0034);
+		mem.writeWord(0x30, 0x940c);
+		mem.writeWord(0x32, 0x0034);
+		mem.writeWord(0x34, 0x940c);
+		mem.writeWord(0x36, 0x0034);
+		mem.writeWord(0x38, 0x940c);
+		mem.writeWord(0x3A, 0x0034);
+		mem.writeWord(0x3C, 0x940c);
+		mem.writeWord(0x4E, 0x0034);
+		mem.writeWord(0x40, 0x940c);
+		mem.writeWord(0x42, 0x0034);
+		mem.writeWord(0x44, 0x940c);
+		mem.writeWord(0x46, 0x0034);
+		mem.writeWord(0x48, 0x940c);
+		mem.writeWord(0x4A, 0x0034);
+		mem.writeWord(0x4C, 0x940c);
+		mem.writeWord(0x4E, 0x0034);
+		mem.writeWord(0x50, 0x940c);
+		mem.writeWord(0x52, 0x0034);
+		mem.writeWord(0x54, 0x940c);
+		mem.writeWord(0x56, 0x0034);
+		mem.writeWord(0x58, 0x940c);
+		mem.writeWord(0x5A, 0x0034);
+		mem.writeWord(0x5C, 0x940c);
+		mem.writeWord(0x5E, 0x0034);
+		mem.writeWord(0x60, 0x940c);
+		mem.writeWord(0x62, 0x0034);
+		mem.writeWord(0x64, 0x940c);
+		mem.writeWord(0x66, 0x0034);
+
+		mem.writeWord(0x68, 0xbe1f);
+		mem.writeWord(0x6A, 0x2411);
+		mem.writeWord(0x6C, 0xe0d8);
+		mem.writeWord(0x6E, 0xefcf);
+		mem.writeWord(0x70, 0xbfcd);
+		mem.writeWord(0x72, 0xbfde);
+		
+			
+			
+		mem.writeWord(0x74, 0x940e);
+		mem.writeWord(0x76, 0x0040);
+		mem.writeWord(0x78, 0x940c);
+		mem.writeWord(0x7A, 0x0062);
+		mem.writeWord(0x7C, 0x940c);
+		mem.writeWord(0x7E, 0x0000);
+		mem.writeWord(0x80, 0x93df);
+		mem.writeWord(0x82, 0x93cf);
+		mem.writeWord(0x84, 0xb7cd);
+		mem.writeWord(0x86, 0xd000);
+		mem.writeWord(0x88, 0xe080);
+		mem.writeWord(0x8A, 0xb7de);
+		mem.writeWord(0x8C, 0xe025);
+		mem.writeWord(0x8E, 0xe091);
+		mem.writeWord(0x90, 0x8320);
+		mem.writeWord(0x92, 0x01fc);
+		mem.writeWord(0x94, 0x8219);
+		mem.writeWord(0x96, 0x821a);
+		mem.writeWord(0x98, 0x8189);
+		mem.writeWord(0x9A, 0xc005);
+		mem.writeWord(0x9C, 0x9601);
+		mem.writeWord(0x9E, 0x819a);
+		mem.writeWord(0xA0, 0x8389);
+		mem.writeWord(0xA2, 0x839a);
+		mem.writeWord(0xA4, 0xe091);
+		mem.writeWord(0xA6, 0xe080);
+		mem.writeWord(0xA8, 0x8180);
+		mem.writeWord(0xAA, 0x01fc);
+		mem.writeWord(0xAC, 0xe030);
+		mem.writeWord(0xAE, 0x2f28);
+		mem.writeWord(0xB0, 0x819a);
+		mem.writeWord(0xB2, 0x8189);
+		mem.writeWord(0xB4, 0x0793);
+		mem.writeWord(0xB6, 0x1782);
+		mem.writeWord(0xB8, 0x900f);
+		mem.writeWord(0xBA, 0xf384);
+		mem.writeWord(0xBC, 0x91df);
+		mem.writeWord(0xBE, 0x900f);
+		mem.writeWord(0xC0, 0x9508);
+		mem.writeWord(0xC2, 0x91cf);
+		mem.writeWord(0xC4, 0xcfff);
+		mem.writeWord(0xC6, 0x94f8);
+
+		emulator.setPC(0x68);
+
+		dumpRaw(&mem, 0x00, 64);
+		dumpRaw(&mem, 0x3e, 2);
+		emulator.run();
+		/*for (int i = 0; i < 4; i++) { 
+			emulator.step(); 
+		}*/
+	}
 	else
 	{
 		std::vector<std::string> dividers;
@@ -285,7 +432,7 @@ void main() {
 		samples.push_back(test_item(0x2C00, "MOV"));
 
 		samples.push_back(test_item(0x05, ""));
-		samples.push_back(test_item(0x3000, "CPI")); // :/
+		samples.push_back(test_item(0x3000, "CPI"));
 		samples.push_back(test_item(0x4000, "SBCI"));
 		samples.push_back(test_item(0x5000, "SUBI"));
 		samples.push_back(test_item(0x6000, "ORI"));

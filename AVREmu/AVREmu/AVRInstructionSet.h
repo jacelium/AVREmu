@@ -24,33 +24,28 @@ public:
 		r5bith = 0x0200, r4bit = 0x000F, r3bit = 0x0007,
 		kH = 0x0F00, kL = 0x000F,
 		s3bit = 0x000E,
+		MMIO_OFFSET = 0x20
 	};
 
 	enum Op {
-		NOP, MOVW, MULS, MULSU, FMUL, FMULS, FMULSU, CPC,
-		SBC, ADD, CP, SUB, ADC, CPSE, AND, EOR,
-		OR, MOV, CPI, SBCI, SUBI, ORI, SBR, ANDI,
-		CBR, LDDZpk, STDZpk, LDDYpk, STDYpk, LDS, STS,
-		COM, LDZp, STZp, NEG, LDmZ, STmZ, SWAP, INC,
-		LMPZ, XCH, LPMZp, LAS, ASR, ELMPZ, LAC, LSR,
-		ELPMZp, LAT, ROR, LDYp, STYp, LDmY, STmY, LDX,
-		STX, LDXp, STXp, LDmX, STmX, PUSH, POP,	JMP,
-		CALL, BSET, BCLR, SEC, CLC, SEN, CLN, SEZ,
-		CLZ, SEI, CLI, SES, CLS, SEV, CLV, SET, CLT,
-		SEH, CLH, RET, RETI, SLEEP, BREAK, WDR, LPM,
-		ELPM, SPM, SPMZp, IJMPZ, EIJMPZ, ICALL, EICALL, DEC,
-		DES, ADIW, SBIW, CBI, SBIC, SBI, SBIS, MUL,
-		IN, OUT, RJMP, RCALL, LDI, SER, BLD, BST,
-		SBRS, SBRC, BRBS, BRBC, BREQ, BRNE, BRCS, BRCC,
-		BRSH, BRLO, BRMI, BRPL,	BRGE, BRLT, BRHS, BRHC,
-		BRTS, BRTC, BRVS, BRVC, BRIE, BRID, TST, CLR,
+		ADD, ADC, ADIW, SUB, SUBI, SBC, SBCI, SBIW, AND, ANDI,
+		OR, ORI, EOR, COM, NEG, SBR, CBR, INC, DEC, TST, CLR,
+		SER, MUL, MULS, MULSU, FMUL, FMULS, FMULSU,
+		RJMP, IJMP, JMP, RCALL, ICALL, CALL, RET, RETI,
+		CPSE, CP, CPC, CPI, SBRC, SBRS, SBIC, SBIS,
+		BRBS, BRBC, BREQ, BRNE, BRCS, BRCC, BRSH, BRLO,
+		BRMI, BRPL, BRGE, BRLT, BRHS, BRHC, BRTS, BRTC,
+		BRVS, BRVC, BRIE, BRID, SBI, CBI, LSL, LSR, ROL,
+		ROR, ASR, SWAP, BSET, BCLR, BST, BLD, SEC, CLC,
+		SEN, CLN, SEZ, CLZ, SEI, CLI, SES, CLS, SEV, CLV,
+		SET, CLT, SEH, CLH, MOV, MOVW, LDI, LDX, LDXp, LDmX,
+		LDY, LDYp, LDmY, LDDY, LDZ, LDZp, LDmZ, LDDZ,
+		LDS, STX, STXp, STmX, STY, STYp, STmY, STDY,
+		STZ, STZp, STmZ, STDZ, STS, LPM, LPMp, SPM,
+		IN, OUT, PUSH, POP, NOP, SLEEP, WDR, BREAK,
 
-		MAXINSTR, HLT = 0xFFFF
+		MAXINSTR, UNKN
 	};
-
-	//AVRInstructionSet();
-
-	//std::vector<void *> ops;
 
 	void buildNewSreg8();
 	void buildNewSreg16();
@@ -96,4 +91,7 @@ private:
 	void operands5bitAnd3bit(word * d, word * k, word inst);
 	void operands6bitAnd3bit(word * d, word * k, word inst);
 	void ioOperands(word * d, word * r, word inst);
+	void iwOperands(word * d, word * r, word inst);
+
+	std::string name();
 };

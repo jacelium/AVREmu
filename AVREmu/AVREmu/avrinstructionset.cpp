@@ -1,6 +1,7 @@
 
 #include <iostream>
 #include "avrinstructionset.h"
+#include <sstream>
 
 void AVRInstructionSet::buildNewSreg8() {
 	// C: (Rd7 AND Rr7 OR Rr7 AND !R7 or !R7 AND !R0)
@@ -106,12 +107,12 @@ void AVRInstructionSet::operands4bitAndConstant(word * d, word * k, word inst) {
 }
 
 void AVRInstructionSet::operands5bitAnd3bit(word * d, word * k, word inst) {
-	*d = (inst & 0xF8 >> 3);
+	*d = (inst & 0xF8) >> 3;
 	*k = inst & r3bit;
 }
 
 void AVRInstructionSet::operands6bitAnd3bit(word * d, word * k, word inst) {
-	*d = (inst & 0x03F8 >> 3);
+	*d = (inst & 0x03F8) >> 3;
 	*k = inst & r3bit;
 }
 
@@ -120,468 +121,619 @@ void AVRInstructionSet::ioOperands(word * d, word * r, word inst) {
 	*r = ((inst & 0x0600) >> 5) | (inst & r4bit);
 }
 
-void AVRInstructionSet::generateState() {
-	retrieve();
-	host->pc += host->instructionSize;
+void AVRInstructionSet::iwOperands(word * d, word * r, word inst) {
+	*d = ((inst & 0x0030) >> 4) * 2 + 24; // 4 upper register pairs
+	*r = ((inst & 0x00C0) >> 4) | (inst & r4bit);
 }
 
+void AVRInstructionSet::generateState() {
+	retrieve();
+	host->movePC();
+}
+
+
 int AVRInstructionSet::retrieve() {
-
 	int wordCount = 1;
+	std::stringstream msg;
 
-		try {
+	try {
 
-			// retrieve
-			if (host->getConfig(Emulator::VERBOSE))
-				log("Reading instruction 0x" + std::to_string(host->pc));
+		// retrieve
+		inst = host->readWord(host->pc);
 
-			inst = host->readWord(host->pc);
+		if (host->getConfig(Emulator::VERBOSE))
+			msg << "Read instruction 0x" << std::hex << host->pc << ": 0x" << inst;
+			log(msg.str());
 
-			//decode
+		//decode
 
-			low = inst & 0xFF;
-			high = inst >> 8;
+		low = inst & 0xFF;
+		high = inst >> 8;
 
-			nib0 = low & 0xF;
-			nib1 = (low & 0xF0) >> 4;
-			nib2 = high & 0xF;
-			nib3 = (high & 0xF0) >> 4;
+		nib0 = low & 0xF;
+		nib1 = (low & 0xF0) >> 4;
+		nib2 = high & 0xF;
+		nib3 = (high & 0xF0) >> 4;
 
-			if (inst == NOP) operation = NOP;
-			else if (inst == HLT) operation = HLT;
+		switch (nib3) {
 
-			else {
-				switch (nib3) {
+			// ### Groups defined by nib3 ONLY
 
-				// ### Groups defined by nib3 ONLY
+		case 0x00: // MOVW/MULS family
+			if (inst == 0x0000) operation = NOP;
+			break;
 
-				case 0x03:
-					operation = CPI;
+			switch (nib2) {
+			case 0x01:
+				operation = MOVW;
+				break;
+			case 0x02:
+				operation = MULS;
+				break;
+			case 0x03:
+				if (nib0 <= 7 && nib1 <= 7) {
+					operation = MULSU;
+					commit(2);
+				}
+				else if (nib0 <= 7 && nib1 > 7)	{
+					operation = FMUL;
+					commit(2);
+				}
+				else if (nib0 > 7 && nib1 <= 7)	{
+					operation = FMULS;
+					commit(2);
+				}
+				else {
+					operation = FMULSU;
+					commit(2);
+				}
+				break;
+			case 0x08:
+				operation = MULS;
+				break;
+			default:
+				if (nib2 <= 0x07) operation = CPC;
+				else if (nib2 <= 0x0B) operation = SBC;
+				else operation = ADD;
+			}
+			break;
+
+		case 0x01: // CPSE/CP/SUB family
+			if (nib2 <= 0x03) operation = CPSE;
+			else if (nib2 <= 0x07) operation = CP;
+			else if (nib2 == 0x0B) operation = SUB;
+			else operation = ADC;
+			break;
+
+		case 0x02: // AND/EOR/OR/MOV family
+			if (nib2 <= 0x03) operation = AND;
+			else if (nib2 <= 0x07) operation = EOR;
+			else if (nib2 <= 0x0B) operation = OR;
+			else operation = MOV;
+			break;
+
+		case 0x03:
+			operation = CPI;
+			break;
+
+		case 0x04:
+			operation = SBCI;
+			break;
+
+		case 0x05:
+			operation = SUBI;
+			break;
+
+		case 0x06: // ORI/SBR
+			operation = ORI;
+			break;
+
+		case 0x07: // ANDI/CBR
+			operation = ANDI;
+			break;
+
+		case 0x08: // LDD/STD Z+k/Y+k
+		case 0x0A:
+			if ((nib2 & 0x2) == 0) { // LDD
+				if ((nib0 & 0x8) == 0) operation = LDDZ;
+				else operation = LDDY;
+			}
+			else { // STD
+				if ((nib0 & 0x8) == 0) operation = STDZ;
+				else operation = STDY;
+
+			}
+
+			commit(2);
+			break;
+
+		case 0x09:
+			if (nib2 <= 5){
+				// patterns of 0-1, 2-3, 4-5 can be condensed to 0, 1, 2 by nib2/2
+				selector = nib2 / 2;
+
+				switch (nib0) {
+				case 0x00:
+					switch (selector) { // TODO
+					case 0:
+						operation = LDS;
+						commit(2);
+						wordCount = 2;
+						break;
+					case 1:
+						operation = STS;
+						commit(2);
+						wordCount = 2;
+						break;
+					case 2:
+						operation = COM;
+						break;
+					}
 					break;
 
+				case 0x01:
+					switch (selector) { // TODO
+					case 0:
+						operation = LDZp;
+						break;
+					case 1:
+						operation = STZp;
+						break;
+					case 2:
+						operation = NEG;
+						break;
+					}
+					break;
+
+				case 0x02:
+					switch (selector) { // TODO
+					case 0:
+						operation = LDmZ;
+						break;
+					case 1:
+						operation = STmZ;
+						break;
+					case 2:
+						operation = SWAP;
+						break;
+					}
+					break;
+
+				case 0x03:
+					operation = INC;
+					break;
 				case 0x04:
-					operation = SBCI;
+					switch (selector) { // TODO
+					case 0:
+						operation = LPM;
+						break;
+					}
 					break;
 
 				case 0x05:
-					operation = SUBI;
+					switch (selector) { // TODO
+					case 0:
+						operation = LPMp;
+						break;
+					case 2:
+						operation = ASR;
+						break;
+					}
 					break;
-
-				case 0x06: // ORI/SBR
-					operation = ORI;
-					break;
-
-				case 0x07: // ANDI/CBR
-					operation = ANDI;
-					break;
-
-				// Groups defined by nib3 AND nib2
-
-				case 0x00: // MOVW/MULS family
-					switch (nib2) {
-					case 0x01:
-						operation = MOVW;
+				case 0x06:
+					switch (selector) { // TODO
+					case 2:
+						operation = LSR;
 						break;
-					case 0x02:
-						operation = MULS;
-						break;
-					case 0x03:
-						if (nib0 <= 7 && nib1 <= 7) {
-							operation = MULSU;
-							commit(2);
-						}
-						else if (nib0 <= 7 && nib1 > 7)	{
-							operation = FMUL;
-							commit(2);
-						}
-						else if (nib0 > 7 && nib1 <= 7)	{
-							operation = FMULS;
-							commit(2);
-						}
-						else {
-							operation = FMULSU;
-							commit(2);
-						}
-						break;
-					case 0x08:
-						operation = MULS;
-						break;
-					default:
-						if (nib2 <= 0x07) operation = CPC;
-						else if (nib2 <= 0x0B) operation = SBC;
-						else operation = ADD;
 					}
 					break;
 
-				case 0x01: // CPSE/CP/SUB family
-					if (nib2 <= 0x03) operation = CPSE;
-					else if (nib2 <= 0x07) operation = CP;
-					else if (nib2 == 0x0B) operation = SUB;
-					else operation = ADC;
+				case 0x07:
+					switch (selector) { // TODO
+					case 2:
+						operation = ROR;
+						break;
+					}
 					break;
 
-				case 0x02: // AND/EOR/OR/MOV family
-					if (nib2 <= 0x03) operation = AND;
-					else if (nib2 <= 0x07) operation = EOR;
-					else if (nib2 <= 0x0B) operation = OR;
-					else operation = MOV;
-					break;
+				case 0x08:
+					if (nib2 == 0x04) {
+						d = (nib1 & 0x7) >> 1;
 
-
-				case 0x08: // LDD/STD Z+k/Y+k
-				case 0x0A:
-					if ((nib2 & 0x2) == 0) { // LDD
-						if ((nib0 & 0x8) == 0) operation = LDDZpk;
-						else operation = LDDYpk;
+						if (nib1 <= 0x07) operation = BSET;
+						else operation = BCLR;
 					}
-					else { // STD
-						if ((nib0 & 0x8) == 0) operation = STDZpk;
-						else operation = STDYpk;
-
+					else if (nib2 == 0x05) {
+						switch (nib1) {
+						case 0x00:
+							operation = RET;
+							commit(4);
+							break;
+						case 0x01:
+							operation = RETI;
+							commit(4);
+							break;
+						case 0x08:
+							operation = SLEEP;
+							break;
+						case 0x09:
+							operation = BREAK;
+							break;
+						case 0x0A:
+							operation = WDR;
+							break;
+						case 0x0C:
+							operation = LPM;
+							break;
+						case 0x0E:
+							operation = SPM;
+							break;
+						}
 					}
-
-					commit(2);
 					break;
 
 				case 0x09:
-					if (nib2 <= 5){
-						// patterns of 0-1, 2-3, 4-5 can be condensed to 0, 1, 2 by nib2/2
-						selector = nib2 / 2;
-
-						switch (nib0) {
-						case 0x00:
-							switch (selector) { // TODO
-							case 0:
-								operation = LDS;
-								commit(2);
-								wordCount = 2;
-								break;
-							case 1:
-								operation = STS;
-								commit(2);
-								wordCount = 2;
-								break;
-							case 2:
-								operation = COM;
-								break;
-							}
-							break;
-
-						case 0x01:
-							switch (selector) { // TODO
-							case 0:
-								operation = LDZp;
-								break;
-							case 1:
-								operation = STZp;
-								break;
-							case 2:
-								operation = NEG;
-								break;
-							}
-							break;
-
-						case 0x02:
-							switch (selector) { // TODO
-							case 0:
-								operation = LDmZ;
-								break;
-							case 1:
-								operation = STmZ;
-								break;
-							case 2:
-								operation = SWAP;
-								break;
-							}
-							break;
-
-						case 0x03:
-							operation = INC;
-							break;
-						case 0x04:
-							switch (selector) { // TODO
-							case 0:
-								operation = LMPZ;
-								break;
-							case 1:
-								operation = XCH;
-								commit(2);
-								break;
-							}
-							break;
-
-						case 0x05:
-							switch (selector) { // TODO
-							case 0:
-								operation = LPMZp;
-								break;
-							case 1:
-								operation = LAS;
-								commit(2);
-								break;
-							case 2:
-								operation = ASR;
-								break;
-							}
-							break;
-						case 0x06:
-							switch (selector) { // TODO
-							case 0:
-								operation = ELMPZ;
-								break;
-							case 1:
-								operation = LAC;
-								commit(2);
-								break;
-							case 2:
-								operation = LSR;
-								break;
-							}
-							break;
-
-						case 0x07:
-							switch (selector) { // TODO
-							case 0:
-								operation = ELPMZp;
-								break;
-							case 1:
-								operation = LAT;
-								commit(2);
-								break;
-							case 2:
-								operation = ROR;
-								break;
-							}
-							break;
-
-						case 0x08:
-							if (nib2 == 0x04) {
-								d = (nib1 & 0x7) >> 1;
-
-								if (nib1 <= 0x07) operation = BSET;
-								else operation = BCLR;
-							}
-							else if (nib2 == 0x05) {
-								switch (nib1) {
-								case 0x00:
-									operation = RET;
-									commit(4);
-									break;
-								case 0x01:
-									operation = RETI;
-									commit(4);
-									break;
-								case 0x08:
-									operation = SLEEP;
-									break;
-								case 0x09:
-									operation = BREAK;
-									break;
-								case 0x0A:
-									operation = WDR;
-									break;
-								case 0x0C:
-									operation = LPM;
-									break;
-								case 0x0D:
-									operation = ELPM;
-									commit(3);
-									break;
-								case 0x0E:
-									operation = SPM;
-									break;
-								case 0x0F:
-									operation = SPMZp;
-									break;
-								}
-							}
-							break;
-
-						case 0x09:
-							switch (nib2) {
-							case 4:
-								if (nib1 == 0) {
-									operation = IJMPZ;
-									commit(2);
-								}
-								else {
-									operation = EIJMPZ;
-								}
-								break;
-							case 5:
-								if (nib1 == 0) {
-									operation = ICALL;
-									commit(3);
-								}
-								else {
-									operation = EICALL;
-									commit(4);
-								}
-								break;
-							}
-							break;
-
-						case 0x0A:
-							if (nib2 <= 1) {
-								operation = LDmY;
-							}
-							else {
-								operation = LDYp;
-							}
-
-							break;
-
-						case 0x0B:
-							break;
-
-						case 0x0C:
-							if (nib2 <= 1) {
-								operation = LDX;
-								commit(2);
-							}
-							else if (nib2 <= 3) {
-								operation = STX;
-								commit(2);
-							}
-							else {
-								operation = JMP;
-								commit(3);
-							}
-
-							break;
-
-						case 0x0D:
-							if (nib2 <= 1) {
-								operation = LDXp;
-								commit(2);
-							}
-							else if (nib2 <= 3) {
-								operation = STXp;
-								commit(2);
-							}
-							else {
-								operation = JMP;
-								commit(3);
-							}
-							break;
-
-						case 0x0E:
-							if (nib2 <= 1) {
-								operation = LDmX;
-								commit(2);
-							}
-							else if (nib2 <= 3) {
-								operation = STmX;
-								commit(2);
-							}
-							else {
-								operation = CALL;
-								commit(4);
-							}
-							break;
-
-						case 0x0F:
-							if (nib2 <= 1) {
-								operation = PUSH;
-								commit(2);
-							}
-							else if (nib2 <= 3) {
-								operation = POP;
-								commit(2);
-							}
-							else {
-								operation = CALL;
-								commit(4);
-							}
-							break;
+					switch (nib2) {
+					case 4:
+						if (nib1 == 0) {
+							operation = IJMP;
+							commit(2);
+						}
+						break;
+					case 5:
+						if (nib1 == 0) {
+							operation = ICALL;
+							commit(3);
 						}
 						break;
 					}
+					break;
+
+				case 0x0A:
+					if (nib2 <= 1) {
+						operation = LDmY;
+					}
 					else {
-						switch (nib2) {
-						case 0x06:
-							operation = ADIW;
-							break;
-						case 0x07:
-							operation = SBIW;
-							commit(2);
-							break;
-						case 0x08:
-							operation = CBI;
-							commit(2);
-							break;
-						case 0x09:
-							operation = SBC;
-							break;
-						case 0x0A:
-							operation = SBI;
-							commit(2);
-							break;
-						case 0x0B:
-							operation = SBIS;
-							break;
-						case 0x0C:
-						case 0x0D:
-						case 0x0E:
-						case 0x0F:
-							operation = MUL;
-							break;
-						}
+						operation = LDYp;
 					}
 
+					break;
+
 				case 0x0B:
-					if (nib2 <= 0x07) operation = IN;
-					else operation = OUT;
 					break;
 
 				case 0x0C:
-					operation = RJMP;
-					commit(2);
+					if (nib2 <= 1) {
+						operation = LDX;
+						commit(2);
+					}
+					else if (nib2 <= 3) {
+						operation = STX;
+						commit(2);
+					}
+					else {
+						operation = JMP;
+						commit(3);
+					}
+
 					break;
 
 				case 0x0D:
-					operation = RCALL;
-					commit(3);
+					if (nib2 <= 1) {
+						operation = LDXp;
+						commit(2);
+					}
+					else if (nib2 <= 3) {
+						operation = STXp;
+						commit(2);
+					}
+					else {
+						operation = JMP;
+						commit(3);
+					}
 					break;
 
 				case 0x0E:
-					operation = LDI;
-					if (inst & 0x0F0F) operation = SER;
+					if (nib2 <= 1) {
+						operation = LDmX;
+						commit(2);
+					}
+					else if (nib2 <= 3) {
+						operation = STmX;
+						commit(2);
+					}
+					else {
+						operation = CALL;
+						commit(4);
+					}
 					break;
 
 				case 0x0F:
-					if (nib2 <= 3) operation = BRBS;
-					else operation = BRBC;
+					if (nib2 <= 1) {
+						operation = PUSH;
+						commit(2);
+					}
+					else if (nib2 <= 3) {
+						operation = POP;
+						commit(2);
+					}
+					else {
+						operation = CALL;
+						commit(4);
+					}
+					break;
+				}
+				break;
+			}
+			else {
+				switch (nib2) {
+				case 0x06:
+					operation = ADIW;
+					break;
+				case 0x07:
+					operation = SBIW;
+					commit(2);
+					break;
+				case 0x08:
+					operation = CBI;
+					commit(2);
+					break;
+				case 0x09:
+					operation = SBC;
+					break;
+				case 0x0A:
+					operation = SBI;
+					commit(2);
+					break;
+				case 0x0B:
+					operation = SBIS;
+					break;
+				case 0x0C:
+				case 0x0D:
+				case 0x0E:
+				case 0x0F:
+					operation = MUL;
 					break;
 				}
 			}
 
-			// TODO:
-			// STX: commit(2);
-			// LDX: commit(2);
+		case 0x0B:
+			if (nib2 <= 0x07) operation = IN;
+			else operation = OUT;
+			break;
 
-		}
-		catch (const char* except) {
-			log(except);
-		}
+		case 0x0C:
+			operation = RJMP;
+			commit(2);
+			break;
 
-		return wordCount;
+		case 0x0D:
+			operation = RCALL;
+			commit(3);
+			break;
+
+		case 0x0E:
+			operation = LDI;
+			if (inst & 0x0F0F) operation = SER;
+			break;
+
+		case 0x0F:
+			if (nib2 <= 3) operation = BRBS;
+			else operation = BRBC;
+			postCommit = true;
+			break;
+		}
+	}
+
+	catch (const char* except) {
+		log(except);
+	}
+
+	return wordCount;
 }
 
 void AVRInstructionSet::applyState() {
-	switch (operation) {
-	case NOP: // 1 cycle
+	bool waiting = false;
 
-		opstring = "NOP";
+	switch (operation) {
+
+#pragma region Arithmetic and Logic
+
+	case ADD:
+		operands5bit(&d, &r, inst);
+
+		opd = host->readByte(d);
+		opr = host->readByte(r);
+		resultByte = opd + opr;
+		host->writeByte(d, resultByte);
+
+		opstring = "ADD " + std::to_string(d) + ", " + std::to_string(r);
+		break;
+
+	case ADC:
+
+			opstring = "ADC";
 
 		break;
 
-	case MOVW: // 1 cycle
-		operands4bit(&d, &r, inst);
+	case ADIW:
+		iwOperands(&d, &r, inst);
 
-		host->writeWord(d, host->readWord(r));
+		opd = host->readWord(d) + r;
+		host->writeWord(d, opd);
 
-		opstring = "MOVW " + std::to_string(d) + ", " + std::to_string(r);
+		// Todo: SREG update
+
+		break;
+
+	case SUB:
+
+		opstring = "SUB";
+
+		break;
+
+	case SUBI:
+
+		opstring = "SUBI";
+
+		break;
+
+	case SBC: // 1 cycle
+		operands5bit(&d, &r, inst);
+
+		resultByte = host->readByte(d) - host->readByte(r) - host->readBit(SREG, carry);
+		host->writeByte(d, resultByte);
+
+		// Todo: SREG updates:
+		//	H = (!Rd3 AND Rr3) OR (Rr3 AND R3) OR (R3 AND !Rd3)
+		//	S = N ^ V
+		//	V = (Rd7 AND !Rr7 AND !R7) OR (!RD7 AND Rr7 AND R7)
+		//  N = R7
+		//	Z = (R == 0)
+		//	C = (!Rd7 AND Rr7) + (Rr7 AND R7) OR (R7 AND !Rd7)
+
+		opstring = "SBC " + std::to_string(d) + ", " + std::to_string(r);
+
+		break;
+
+	case SBCI: // 1 cycle
+		operands4bitAndConstant(&d, &k, inst);
+
+		resultByte = host->readByte(d) - k - host->readBit(SREG, carry);
+		host->writeByte(d, resultByte);
+
+		// Todo: SREG updates:
+		//	H
+		//	S
+		//	V
+		//	N
+		//	Z
+		//	C
+
+		opstring = "SBCI " + std::to_string(d) + ", " + std::to_string(k);
+
+		break;
+
+	case SBIW:
+		iwOperands(&d, &r, inst);
+
+		opd = host->readWord(d) - r;
+		host->writeWord(d, opd);
+
+		// Todo: SREG update
+
+		break;
+
+	case AND:
+	case TST:
+		// if r == d then TST
+
+
+		opstring = "AND";
+
+		break;
+
+	case ANDI:
+	case CBR:
+		operands4bitAndConstant(&d, &k, inst);
+
+		// Complement K for CBR.
+		resultByte = host->readByte(d) & k;
+		host->writeByte(d, resultByte);
+
+		// Todo: SREG update, 
+
+		opstring = "ANDI " + std::to_string(d) + ", $" + std::to_string(k);
+		break;
+
+	case OR: // 1 cycle
+		operands5bit(&d, &r, inst);
+
+		resultByte = host->readWord(d) | host->readWord(r);
+		host->writeByte(d, resultByte);
+
+		// todo: SREG update, S = N^V V = 0 N = R7, Z = (R == 0)
+		opstring = "OR " + std::to_string(d) + ", " + std::to_string(r);
+
+		break;
+
+	case ORI: // 1 cycle
+	case SBR:
+		operands4bitAndConstant(&d, &k, inst);
+
+		resultByte = host->readByte(d) | k;
+		host->writeByte(d, resultByte);
+
+		// Todo: SREG update, S = N^V, V = 0, N = R7, Z = (R == 0)
+		opstring = "ORI " + std::to_string(d) + ", $" + std::to_string(k);
+		break;
+
+	case EOR:
+	case CLR:
+		operands5bit(&d, &r, inst);
+		
+		resultByte = d ^ r;
+
+		host->writeByte(d, resultByte);
+
+		if (r == d) opstring = "CLR " + std::to_string(d);
+		else opstring = "EOR " + std::to_string(d) + ", " + std::to_string(r);
+
+		break;
+
+	case COM:
+
+		opstring = "COM";
+
+		break;
+
+	case NEG: // 1 cycle
+		operand5bit(&d, inst);
+		resultByte = ~(host->readByte(d)) + 1;
+		host->writeByte(d, resultByte);
+		break;
+
+	case INC:
+		operand5bit(&d, inst);
+
+		host->writeByte(d, host->readByte(d) + 1);
+
+		// Todo: SREG update,
+		// S: N^V
+		// V: R7 AND !R6 AND !R5 AND !R4 AND !R3 AND !R2 AND !R1 AND !R0
+		// N: R7
+		// Z: = (R == 0)
+
+		break;
+
+	case DEC:
+		operand5bit(&d, inst);
+
+		host->writeByte(d, host->readByte(d) - 1);
+
+		// Todo: SREG update,
+		// S: N^V
+		// V: !R7 AND R6 AND R5 AND R4 AND R3 AND R2 AND R1 AND R0
+		// N: R7
+		// Z: = (R == 0)
+
+		break;
+
+	case SER:
+
+		opstring = "SER";
+
+		break;
+
+	case MUL:
+		operands5bit(&d, &r, inst);
+
+		resultWord = host->readByte(d) * host->readByte(r);
+		host->writeWord(r0, resultWord);
+
+		// Todo: Sreg updates. C = R15, z = (R == 0)
+		opstring = "MUL " + std::to_string(d) + ", " + std::to_string(r);
+
 		break;
 
 	case MULS: // 1 cycle
@@ -604,191 +756,322 @@ void AVRInstructionSet::applyState() {
 		opstring = "MULSU " + std::to_string(d) + ", " + std::to_string(r);
 
 		break;
+
 	case FMUL:
+
+		opstring = "FMUL";
+
 		break;
+
 	case FMULS:
+
+		opstring = "FMULS";
+
 		break;
+
 	case FMULSU:
-		break;
-	case CPC:
-		break;
-	case SBC: // 1 cycle
-		operands5bit(&d, &r, inst);
 
-		resultByte = host->readByte(d) - host->readByte(r) - host->readBit(SREG, carry);
-		host->writeByte(d, resultByte);
-
-		// Todo: SREG updates:
-		//	H = (!Rd3 AND Rr3) OR (Rr3 AND R3) OR (R3 AND !Rd3)
-		//	S = N ^ V
-		//	V = (Rd7 AND !Rr7 AND !R7) OR (!RD7 AND Rr7 AND R7)
-		//  N = R7
-		//	Z = (R == 0)
-		//	C = (!Rd7 AND Rr7) + (Rr7 AND R7) OR (R7 AND !Rd7)
-
-		opstring = "SBC " + std::to_string(d) + ", " + std::to_string(r);
+		opstring = "FMULSU";
 
 		break;
-	case ADD:
-		operands5bit(&d, &r, inst);
 
-		opd = host->readByte(d);
-		opr = host->readByte(r);
-		resultByte = opd + opr;
-		host->writeByte(d, resultByte);
+#pragma endregion
 
-		opstring = "ADD " + std::to_string(d) + ", " + std::to_string(r);
+#pragma region Branch instructions
+
+	case RJMP: // 2 cycles
+		operand24bit(&d, inst);
+
+		host->setPC(d);
+
+		opstring = "RJMP " + std::to_string(d);
+
 		break;
-	case CP:
+
+	case IJMP:
+		addr = host->readWord(rZ);
+		host->setPC(addr);
+
+		opstring = "IJMP > " + std::to_string(addr);
+
 		break;
-	case SUB:
+
+	case JMP:
+		addr = ((inst & d5bit) << 13) | ((inst & 0x01) << 8) | host->readByte(host->pc);
+		
+		host->setPC(addr);
+
+		opstring = "JMP > " + std::to_string(addr);
 		break;
-	case ADC:
+
+	case RCALL: // 3 cycles on 16bit PC, 4 cycles on 22bit PC. Assuming 16-bit.
+		operand24bit(&d, inst);
+
+		// Test: SP is 0x0F, push moves to 0x0D, 0x0E/0x0F are new contents.
+		host->writeWord(host->readWord(SP) - 1, host->movePC()); // Store return address...
+		host->writeWord(host->readWord(SP), host->readWord(SP) - 2); // Move SP to SP-2.
+
+		// Call:
+		host->setPC(d);
+
+		opstring = "RCALL " + std::to_string(d);
+
 		break;
+
+	case ICALL:
+		addr = host->readWord(rZ);
+
+		host->writeWord(host->readWord(SP) - 1, host->movePC()); // Store return address in SP(-1:0)
+		host->writeWord(host->readWord(SP), host->readWord(SP) - 2); // Move SP to SP-2.
+
+		host->setPC(addr);
+
+		opstring = "ICALL > " + std::to_string(addr);
+		break;
+
+	case CALL:
+
+		host->writeWord(host->readWord(SP) - 1, host->pc);
+		host->writeWord(SP, host->readWord(SP) - 2);
+
+		addr = ((inst & d5bit) << 13) | ((inst & 0x01) << 8) | host->readByte(host->pc);
+
+		host->setPC(addr);
+
+		opstring = "CALL > " + std::to_string(addr);
+
+		break;
+
+	case RET: // 4 cycles on 16bit PC, 5 on 22bit PC
+		host->setPC(host->readWord(SP) + 1);
+		host->writeWord(host->readWord(SP), host->readWord(SP) + 2); // For 22bit this is 3 bytes rather than 2
+
+		opstring = "RET";
+		break;
+
+	case RETI: // 4 cycles on 16bit PC, 5 on 22bit PC
+		host->setPC(host->readWord(SP) + 1);
+		host->writeWord(host->readWord(SP), host->readWord(SP) + 2); // For 22bit this is 3 bytes rather than 2
+
+		host->setBit(SREG, interrupt);
+
+		opstring = "RETI";
+
+		break;
+
 	case CPSE:
 		operands5bit(&d, &r, inst);
 
 		if (host->readByte(d) == host->readByte(r)) {
-			host->pc += (host->instructionSize * retrieve());
+			host->movePC(retrieve());
 			uncommit();
 		}
 
 		opstring = "CPSE " + std::to_string(d) + ", " + std::to_string(r);
 
 		break;
-	case AND:
-		// if r == d then TST
-		break;
-	case EOR:
-		// if r == d then CLR
+
+	case CP:
+
+		opstring = "CP ";
 
 		break;
-	case OR: // 1 cycle
-		operands5bit(&d, &r, inst);
 
-		resultByte = host->readWord(d) | host->readWord(r);
-		host->writeByte(d, resultByte);
+	case CPC:
 
-		// todo: SREG update, S = N^V V = 0 N = R7, Z = (R == 0)
-		opstring = "OR " + std::to_string(d) + ", " + std::to_string(r);
+		opstring = "CPC ";
 
 		break;
-	case MOV: // 1 cycle
-		operands5bit(&d, &r, inst);
-		host->writeByte(d, host->readByte(r));
 
-		opstring = "MOV " + std::to_string(d) + ", " + std::to_string(r);
-
-		break;
 	case CPI:
-		break;
-	case SBCI: // 1 cycle
-		operands4bitAndConstant(&d, &k, inst);
+		operands4bitAndConstant(&d, &r, inst);
 
-		resultByte = host->readByte(d) - k - host->readBit(SREG, carry);
-		host->writeByte(d, resultByte);
-
-		// Todo: SREG updates:
-		//	H
-		//	S
-		//	V
-		//	N
-		//	Z
-		//	C
-
-		opstring = "SBCI " + std::to_string(d) + ", " + std::to_string(k);
+		opstring = "CPI " + std::to_string(d) + ", " + std::to_string(r);
 
 		break;
-	case SUBI:
-		break;
-	case ORI: // 1 cycle
-		operands4bitAndConstant(&d, &k, inst);
 
-		resultByte = host->readByte(d) | k;
-		host->writeByte(d, resultByte);
+	case SBRC:
 
-		// Todo: SREG update, S = N^V, V = 0, N = R7, Z = (R == 0)
-		opstring = "ORI " + std::to_string(d) + ", $" + std::to_string(k);
-		break;
-	case ANDI:
-		operands4bitAndConstant(&d, &k, inst);
-
-		// Complement K for CBR.
-		resultByte = host->readByte(d) & k;
-		host->writeByte(d, resultByte);
-
-		// Todo: SREG update, 
-		
-		opstring = "ANDI " + std::to_string(d) + ", $" + std::to_string(k);
-		break;
-	case LDDZpk:
-
-		addr = host->readWord(rZ) + k;
-		host->writeByte(d, host->readByte(addr));
-		
-		opstring = "LDDZ " + std::to_string(d);
-		if (k != 0) opstring += " +k " + std::to_string(k);
+		opstring = "SBRC ";
 
 		break;
-	case STDZpk:
 
-		addr = host->readWord(rZ) + k;
-		host->writeByte(addr, host->readByte(d));
+	case SBRS:
 
-		opstring = "STDZ " + std::to_string(d);
-		if (k != 0) opstring += " +k " + std::to_string(k);
+		opstring = "SBRS ";
 
 		break;
-	case LDDYpk:
-		addr = host->readWord(rY) + k;
-		if (k != 0) opstring += "+k";
-		break;
-	case STDYpk:
-		d = host->readWord(rY) + k;
 
-		if (k != 0) opstring += "+k";
+	case SBIC:
+		operands5bitAnd3bit(&d, &k, inst);
+
+		if (!host->readBit(d, k)) {
+			host->movePC(retrieve()); // check width to skip
+			uncommit();
+		}
+
+		opstring = "SBIC " + std::to_string(d) + ", " + std::to_string(k);
+
 		break;
-	case LDS:
+
+	case SBIS:
+		operands5bitAnd3bit(&d, &k, inst);
+
+		if (host->readBit(d, k)) {
+			host->movePC(retrieve()); // check width to skip
+			uncommit();
+		}
+
+		opstring = "SBIS " + std::to_string(d) + ", " + std::to_string(k);
+
 		break;
-	case STS:
+
+	case BRBS:
+		operands6bitAnd3bit(&d, &r, inst);
+
+		// allow for postcommitting:
+		if (postCommit) {
+			postCommit = false;
+			if (host->readBit(SREG, r)) {
+				commit(0);
+				waiting = true;
+				break;
+			}
+		}
+
+		waiting = false;
+
+		if (host->readBit(SREG, r)) {
+			host->movePC((int16_t)d);
+		}
+
+		opstring = std::to_string(d);
+
+		switch (r) {
+		case 0x00:
+			opstring = "BRCS " + opstring;
+			break;
+		case 0x01:
+			opstring = "BREQ " + opstring;
+			break;
+		case 0x02:
+			opstring = "BRMI " + opstring;
+			break;
+		case 0x03:
+			opstring = "BRVS " + opstring;
+			break;
+		case 0x04:
+			opstring = "BRLT " + opstring;
+			break;
+		case 0x05:
+			opstring = "BRHS " + opstring;
+			break;
+		case 0x06:
+			opstring = "BRTS " + opstring;
+			break;
+		case 0x07:
+			opstring = "BRIE " + opstring;
+			break;
+		default:
+			opstring = "BRBS " + opstring + ", " + std::to_string(r);
+			break;
+		}
+
 		break;
-	case COM:
+
+	case BRBC:
+		operands6bitAnd3bit(&d, &r, inst);
+
+		// allow for postcommitting:
+		if (postCommit) {
+			postCommit = false;
+			if (!host->readBit(SREG, r)) {
+				commit(0);
+				waiting = true;
+				break;
+			}
+		}
+
+		waiting = false;
+
+		if (!host->readBit(SREG, r)) {
+			host->movePC((int16_t)d);
+		}
+
+		opstring = std::to_string(d);
+
+		switch (r) {
+		case 0x00:
+			opstring = "BRCC " + opstring;
+			break;
+		case 0x01:
+			opstring = "BRNE " + opstring;
+			break;
+		case 0x02:
+			opstring = "BRPL " + opstring;
+			break;
+		case 0x03:
+			opstring = "BRVC " + opstring;
+			break;
+		case 0x04:
+			opstring = "BRGE " + opstring;
+			break;
+		case 0x05:
+			opstring = "BRHC " + opstring;
+			break;
+		case 0x06:
+			opstring = "BRTT " + opstring;
+			break;
+		case 0x07:
+			opstring = "BRID " + opstring;
+			break;
+		default:
+			opstring = "BRBC " + opstring + ", " + std::to_string(r);
+			break;
+		}
+
 		break;
-	case LDZp:
+
+#pragma endregion
+
+#pragma region Bit and Bit-test
+
+	case SBI: // 2 cycles
+		operands5bitAnd3bit(&d, &k, inst);
+
+		host->setBit(d, k);
+
+		opstring = "SBI " + std::to_string(d) + ", " + std::to_string(k);
+
 		break;
-	case STZp:
+
+	case CBI:
+		operands5bitAnd3bit(&d, &k, inst);
+
+		host->clearBit(d, k);
+
+		opstring = "CBI " + std::to_string(d) + ", " + std::to_string(k);
+
 		break;
-	case NEG: // 1 cycle
-		operand5bit(&d, inst);
-		resultByte = ~(host->readByte(d)) + 1;
-		host->writeByte(d, resultByte);
+
+	case LSL:
+
+		opstring = "LSL ";
+
 		break;
-	case LDmZ:
-		break;
-	case STmZ:
-		break;
-	case SWAP:
-		break;
-	case INC:
-		break;
-	case XCH:
-		break;
-	case LPMZp:
-		break;
-	case LAS:
-		break;
-	case ASR:
-		break;
-	case ELMPZ:
-		break;
-	case LAC:
-		break;
+
 	case LSR:
+
+		opstring = "LSR ";
+
 		break;
-	case ELPMZp:
+
+	case ROL:
+
+		opstring = "ROL ";
+
 		break;
-	case LAT:
-		break;
+
 	case ROR: // 1 cycle
 		operand5bit(&d, inst);
 
@@ -799,48 +1082,22 @@ void AVRInstructionSet::applyState() {
 		opstring = "ROR " + std::to_string(d);
 
 		break;
-	case LDYp:
+
+	case ASR:
+
+		opstring = "ASR ";
+
 		break;
-	case STYp:
-		break;
-	case LDmY:
-		break;
-	case STmY:
-		break;
-	case LDX:
-		break;
-	case STX:
-		break;
-	case LDXp:
-		break;
-	case STXp:
-		break;
-	case LDmX:
-		break;
-	case STmX:
-		break;
-	case PUSH: // 2 cycles
+
+	case SWAP:
 		operand5bit(&d, inst);
 
-		host->writeByte(host->readWord(SP), host->readByte(d));
-		host->writeWord(SP, host->readWord(SP) - 1);
+		opd = host->readByte(d);
+		host->writeByte(d, ((opd & 0xFF00) >> 4) | ((opd & 0x00FF) << 4));
 
-		opstring = "PUSH " + std::to_string(d);
-
+		opstring = "SWAP " + std::to_string(d);
 		break;
-	case POP: // 2 cycles
-		operand5bit(&d, inst);
 
-		host->writeWord(SP, host->readWord(SP) + 1);
-		host->writeByte(host->readWord(SP), host->readByte(d));
-
-		opstring = "POP " + std::to_string(d);
-
-		break;
-	case JMP:
-		break;
-	case CALL:
-		break;
 	case BSET:
 		host->setBit(SREG, d);
 
@@ -871,6 +1128,7 @@ void AVRInstructionSet::applyState() {
 			break;
 		}
 		break;
+
 	case BCLR:
 		host->clearBit(SREG, d);
 		switch (nib1) {
@@ -900,287 +1158,288 @@ void AVRInstructionSet::applyState() {
 			break;
 		}
 		break;
-	case SEC:
-		break;
-	case CLC:
-		break;
-	case SEN:
-		break;
-	case CLN:
-		break;
-	case SEZ:
-		break;
-	case CLZ:
-		break;
-	case SEI:
-		break;
-	case CLI:
-		break;
-	case SES:
-		break;
-	case CLS:
-		break;
-	case SEV:
-		break;
-	case CLV:
-		break;
-	case SET:
-		break;
-	case CLT:
-		break;
-	case SEH:
-		break;
-	case CLH:
-		break;
-	case RET: // 4 cycles on 16bit PC, 5 on 22bit PC
-		host->pc = host->readWord(SP) + 1;
-		host->writeWord(host->readWord(SP), host->readWord(SP) + 2); // For 22bit this is 3 bytes rather than 2
-		
 
-		opstring = "RET";
-		break;
-	case RETI: // 4 cycles on 16bit PC, 5 on 22bit PC
-		host->pc = host->readWord(SP) + 1;
-		host->writeWord(host->readWord(SP), host->readWord(SP) + 2); // For 22bit this is 3 bytes rather than 2
+	case BST:
 
-		host->setBit(SREG, interrupt);
-
-		opstring = "RETI";
-
-		break;
-	case SLEEP:
-		break;
-	case BREAK:
-		break;
-	case WDR:
-		break;
-	case LPM:
-		break;
-	case ELPM:
-		break;
-	case SPM:
-		break;
-	case SPMZp:
-		break;
-	case IJMPZ:
-		addr = host->readWord(rZ);
-		host->pc = addr;
-
-		opstring = "IJMP > " + std::to_string(addr); 
-
-		break;
-	case EIJMPZ:
-		//todo
-		commit(2);
-		break;
-	case ICALL:
-		host->pc = addr;
-		break;
-	case EICALL:
-		//todo
-		break;
-	case DEC:
-		break;
-	case DES:
-		break;
-	case ADIW:
-		break;
-	case SBIW:
-		break;
-	case CBI:
-		operands5bitAnd3bit(&d, &k, inst);
-
-		host->clearBit(d, k);
-
-		opstring = "CBI " + std::to_string(d) + ", " + std::to_string(k);
+		opstring = "BST ";
 
 		break;
 
-	case SBIC:
-		operands5bitAnd3bit(&d, &k, inst);
+	case BLD:
 
-		if (!host->readBit(d, k)) {
-			host->pc += (host->instructionSize * retrieve()); // check width to skip
-			uncommit();
-		}
-
-		opstring = "SBIC " + std::to_string(d) + ", " + std::to_string(k);
-		
-		break;
-
-	case SBI: // 2 cycles
-		operands5bitAnd3bit(&d, &k, inst);
-
-		host->setBit(d, k);
-
-		opstring = "SBI " + std::to_string(d) + ", " + std::to_string(k);
+		opstring = "BLD ";
 
 		break;
 
-	case SBIS:
-		operands5bitAnd3bit(&d, &k, inst);
+#pragma endregion
 
-		if (host->readBit(d, k)) {
-			host->pc += (host->instructionSize * retrieve()); // check width to skip
-			uncommit();
-		}
+#pragma region Data transfer
 
-		opstring = "SBIS " + std::to_string(d) + ", " + std::to_string(k);
-
-		break;
-
-	case MUL:
+	case MOV: // 1 cycle
 		operands5bit(&d, &r, inst);
+		host->writeByte(d, host->readByte(r));
 
-		resultWord = host->readByte(d) * host->readByte(r);
-		host->writeWord(r0, resultWord);
-
-		// Todo: Sreg updates. C = R15, z = (R == 0)
-		opstring = "MUL " + std::to_string(d) + ", " + std::to_string(r);
+		opstring = "MOV " + std::to_string(d) + ", " + std::to_string(r);
 
 		break;
+
+	case MOVW: // 1 cycle
+		operands4bit(&d, &r, inst);
+
+		host->writeWord(d, host->readWord(r));
+
+		opstring = "MOVW " + std::to_string(d) + ", " + std::to_string(r);
+		break;
+
+	case LDI:
+
+		opstring = "LDI ";
+
+		break;
+
+	case LDX:
+
+		opstring = "LDX ";
+
+		break;
+
+	case LDXp:
+
+		opstring = "LDX+ ";
+
+		break;
+
+	case LDmX:
+
+		opstring = "LD-X ";
+
+		break;
+
+	case LDY:
+	case LDDY:
+		addr = host->readWord(rY) + k;
+
+		opstring = "LDY ";
+
+		if (k != 0) opstring += "+k";
+		break;
+
+	case LDYp:
+
+		opstring = "LDY+";
+
+		break;
+
+	case LDmY:
+
+		opstring = "LD-Y";
+
+		break;
+		
+	case LDZ:
+	case LDDZ:
+
+		addr = host->readWord(rZ) + k;
+		host->writeByte(d, host->readByte(addr));
+
+		opstring = "LDZ " + std::to_string(d);
+		if (k != 0) opstring += " +k " + std::to_string(k);
+
+		break;
+	
+	case LDZp:
+
+		opstring = "LDZ+";
+
+		break;
+
+	case LDmZ:
+
+		opstring = "LD-Z";
+
+		break;
+
+	case LDS:
+
+		opstring = "LDS";
+
+		break;
+
+	case STX:
+
+		opstring = "STX";
+
+		break;
+
+	case STXp:
+
+		opstring = "STX+";
+
+		break;
+
+	case STmX:
+
+		opstring = "ST-X";
+
+		break;
+
+	case STY:
+	case STDY:
+		d = host->readWord(rY) + k;
+
+
+		opstring = "STY ";
+
+
+		if (k != 0) opstring += "+k";
+		break;
+
+	case STYp:
+
+		opstring = "STY+";
+
+
+		break;
+
+	case STmY:
+
+		opstring = "ST-Y";
+
+		break;
+
+	case STZ:
+	case STDZ:
+		addr = host->readWord(rZ) + k;
+		host->writeByte(addr, host->readByte(d));
+
+		opstring = "STDZ " + std::to_string(d);
+		if (k != 0) opstring += " +k " + std::to_string(k);
+
+		break;
+
+	case STZp:
+
+		opstring = "STZ+ ";
+
+		break;
+
+	case STmZ:
+
+		opstring = "ST-Z ";
+
+		break;
+
+	case STS:
+
+		opstring = "STS ";
+
+		break;
+
+	case LPM:
+
+		opstring = "LPM";
+
+		break;
+
+	case LPMp:
+
+		opstring = "LPMZ+";
+
+		break;
+
+	case SPM:
+
+		opstring = "SPM";
+
+		break;
+
 	case IN:
+		ioOperands(&d, &r, inst);
+
+		r += MMIO_OFFSET; // moves from IO space (0x00-0x3F) -> data space (0x20-0x5F) and thus prevents mirroring
+
+		host->writeByte(d, host->readByte(r));
+
+		opstring = "IN " + std::to_string(d) + ", " + std::to_string(r);
+
 		break;
+
 	case OUT: // 1 cycle
 		ioOperands(&d, &r, inst);
 
-		host->writeByte(d, host->readByte(r));
+		r += MMIO_OFFSET; // moves from IO space (0x00-0x3F) -> data space (0x20-0x5F) and thus prevents mirroring
+
+		host->writeByte(r, host->readByte(d));
 
 		opstring = "OUT " + std::to_string(d) + ", " + std::to_string(r);
 
 		break;
-	case RJMP: // 2 cycles
-		operand24bit(&d, inst);
-		
-		host->pc = d;
 
-		opstring = "RJMP " + std::to_string(d);
+	case PUSH: // 2 cycles
+		operand5bit(&d, inst);
 
-		break;
-	case RCALL: // 3 cycles on 16bit PC, 4 cycles on 22bit PC. Assuming 16-bit.
-		operand24bit(&d, inst);
+		host->writeByte(host->readWord(SP), host->readByte(d));
+		host->writeWord(SP, host->readWord(SP) - 1);
 
-		// Store return address:
-		// Test: SP is 0x0F, push moves to 0x0D, 0x0E/0x0F are new contents.
-		host->writeWord(host->readWord(SP) - 1, host->pc + (1 * host->instructionSize)); // Store return address...
-		host->writeWord(host->readWord(SP), host->readWord(SP) - 2); // Move SP. For 22bit this is 3 bytes rather than 2
-
-		// Call:
-		host->pc = d;
-
-		opstring = "RCALL " + std::to_string(d);
+		opstring = "PUSH " + std::to_string(d);
 
 		break;
-	case LDI:
-		break;
-	case SER:
-		break;
-	case BLD:
-		break;
-	case BST:
-		break;
-	case SBRS:
-		break;
-	case SBRC:
-		break;
-	case BRBS:
-		// 111100kkkkkkksss
-		operands6bitAnd3bit(&d, &r, inst);
 
-		if (host->readBit(sreg, r)) {
-			host->pc += (int16_t)d;
-		}
+	case POP: // 2 cycles
+		operand5bit(&d, inst);
 
-		switch (r) {
-		case 0x00:
-			opstring = "BRCS";
-			break;
-		case 0x01:
-			opstring = "BREQ";
-			break;
-		case 0x02:
-			opstring = "BRMI";
-			break;
-		case 0x03:
-			opstring = "BRVS";
-			break;
-		case 0x04:
-			opstring = "BRLT";
-			break;
-		case 0x05:
-			opstring = "BRHS";
-			break;
-		case 0x06:
-			opstring = "BRTS";
-			break;
-		case 0x07:
-			opstring = "BRIE";
-			break;
-		default:
-			opstring = "BRBS";
-			break;
-		}
+		host->writeWord(SP, host->readWord(SP) + 1);
+		host->writeByte(host->readWord(SP), host->readByte(d));
+
+		opstring = "POP " + std::to_string(d);
 
 		break;
-	case BRBC:
-		// 111101kkkkkkksss
-		operands6bitAnd3bit(&d, &r, inst);
+#pragma endregion
 
-		if (!host->readBit(sreg, r)) {
-			host->pc += (int16_t)d;
-		}
+#pragma region MCU Control
 
-		switch (r) {
-		case 0x00:
-			opstring = "BRCC";
-			break;
-		case 0x01:
-			opstring = "BRNE";
-			break;
-		case 0x02:
-			opstring = "BRPL";
-			break;
-		case 0x03:
-			opstring = "BRVC";
-			break;
-		case 0x04:
-			opstring = "BRGE";
-			break;
-		case 0x05:
-			opstring = "BRHC";
-			break;
-		case 0x06:
-			opstring = "BRTT";
-			break;
-		case 0x07:
-			opstring = "BRID";
-			break;
-		default:
-			opstring = "BRBC";
-			break;
-		}
+	case NOP: // 1 cycle
+
+		opstring = "NOP";
 
 		break;
-	case HLT:
+
+	case SLEEP:
+
+		opstring = "SLEEP";
+
+		break;
+
+	case WDR:
+
+		opstring = "WDR";
+
+		break;
+
+	case BREAK:
 		host->setState(Emulator::STOP);
-		opstring = "HLT";
+		opstring = "BREAK";
 		break;
+
+#pragma endregion
+
 	default:
 		break;
 	}
 
+	if (waiting) return;
+
 	host->writeByte(SREG, sreg); // Replace SREG with new sreg
 
 	if (host->getConfig(Emulator::VERBOSE)) {
-		log("-> " + opstring);
+		log("-> " + opstring + " " + std::to_string(inst));
 	}
-
-	//if (mode == rWord) host->writeWord(d, resultWord);
-	//else host->writeByte(d, resultByte);
 
 	// reset sentinel values for transient stuff
 	sreg = 0xFF;
-	opstring = "Unknown opcode"; // overwritten by recognised ops
-	// End TODO.
+	operation = UNKN;
+	opstring = "Unknown opcode";
 }
-
+std::string AVRInstructionSet::name() {
+	return "AVR Instruction set";
+}

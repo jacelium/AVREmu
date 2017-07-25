@@ -23,6 +23,7 @@ public:
 	void setState(State newState);
 	unsigned int clockSubscribe(Plugin * client);
 	void setInstructionWidth(unsigned int instructionWidth);
+	unsigned int movePC(int offset = 1);
 
 	// run/inspect
 	void step();
@@ -39,7 +40,7 @@ public:
 	void clearBit(int address, int bitnum);
 	int readBit(int address, int bitnum);
 
-	void loadProgram(const char * progFile);
+	void loadProgram(const char * progFile, int offset = 0);
 
 	unsigned int clockRate;
 

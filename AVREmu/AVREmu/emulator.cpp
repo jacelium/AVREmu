@@ -29,6 +29,7 @@ void Emulator::tick() {
 
 unsigned int Emulator::clockSubscribe(Plugin * client) {
 	this->subscribers.push_back(client);
+	std::cout << client->getName() << " registered as plugin " << subscribers.size() - 1 << std::endl;
 	client->registerHost(this, subscribers.size()-1);
 	return subscribers.size()-1;
 }
@@ -100,18 +101,20 @@ bool Emulator::getConfig(Config conf) {
 	return this->config.at(conf);
 }
 
-void Emulator::loadProgram(const char * progFile) {
+void Emulator::loadProgram(const char * progFile, int offset /* 0 */) {
 	std::cout << "[Host] Loading program from '" << progFile << "'..." << std::endl;
 
-	int addr = 0;
+	int addr = 0x00;
 	byte x[2];
 
 	std::fstream f;
 	f.open(progFile);
 
+	f.seekg(offset-1);
+
 	while (f) {
 		f.read((char *)x, 2);
-		word y = (x[0] << 8) | x[1];
+		word y = (x[1] << 8) | x[0];
 
 		this->writeWord(addr, y);
 		addr += 2;
@@ -120,4 +123,9 @@ void Emulator::loadProgram(const char * progFile) {
 	std::cout << "[Host] " << addr - 2 << " bytes loaded." << std::endl;
 
 	f.close();
+}
+
+unsigned int Emulator::movePC(int offset /* 1 */) {
+	this->pc += (offset * instructionSize);
+	return this->pc;
 }

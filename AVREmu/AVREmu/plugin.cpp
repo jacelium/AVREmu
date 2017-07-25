@@ -27,7 +27,6 @@ void Plugin::tick() {
 	if (!this->busy()) {
 		this->applyState();
 	}
-
 }
 
 void Plugin::generateState() {
@@ -41,6 +40,14 @@ void Plugin::applyState() {
 void Plugin::registerHost(Emulator * host, unsigned int id) {
 	this->host = host;
 	this->id = id;
+}
+
+std::string Plugin::getName() {
+	return this->name();
+}
+
+std::string Plugin::name() {
+	return "Plugin";
 }
 
 void Plugin::log(std::string msg) {
