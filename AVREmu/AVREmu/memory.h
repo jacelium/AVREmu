@@ -8,11 +8,16 @@ typedef uint8_t byte;
 typedef uint16_t word;
 typedef uint32_t dword;
 
+struct MirroredRange {
+	unsigned int start;
+	unsigned int end;
+	int offset;
+};
+
 class Memory {
 private:
 	std::vector<byte> memory;
 	void memoryError(int address);
-	enum MMIO {MMIO_OFFSET = 0x20, MMIO_START = 0, MMIO_END = 0x20};
 
 public:
 	byte readByte(int address);
@@ -32,5 +37,7 @@ public:
 	unsigned int getSize();
 
 	Memory(int size);
+
+	std::vector<MirroredRange *> maps;
 };
 

@@ -11,12 +11,13 @@ public:
 	enum State {RUN, STOP, BREAK, STATESIZE};
 	enum Config {VERBOSE, CONFIGSIZE};
 
+	enum Memtype {SRAM, PROGRAM, EEPROM, MEMSIZE};
+
 	Emulator();
-	Emulator(Memory * mem);
 	~Emulator();
 
 	// config
-	void setMemory(Memory * mem);
+	void setMemory(Memory * mem, Memtype memory = SRAM);
 	void setInterruptInterval(int interval);
 	void configure(Config conf, bool state);
 	bool getConfig(Config conf);
@@ -32,19 +33,19 @@ public:
 	State getState();
 	void tick();
 
-	void writeByte(int address, byte data);
-	void writeWord(int address, word data);
-	byte readByte(int address); 
-	word readWord(int address);
-	void setBit(int address, int bitnum);
-	void clearBit(int address, int bitnum);
-	int readBit(int address, int bitnum);
+	void writeByte(int address, byte data, Memtype memory = SRAM);
+	void writeWord(int address, word data, Memtype memory = SRAM);
+	byte readByte(int address, Memtype memory = SRAM);
+	word readWord(int address, Memtype memory = SRAM);
+	void setBit(int address, int bitnum, Memtype memory = SRAM);
+	void clearBit(int address, int bitnum, Memtype memory = SRAM);
+	int readBit(int address, int bitnum, Memtype memory = SRAM);
 
-	void loadProgram(const char * progFile, int offset = 0);
+	void loadProgram(const char * progFile);
 
 	unsigned int clockRate;
 
-	Memory * mem = nullptr;
+	std::vector<Memory *> mem;
 
 	unsigned int pc = 0; // Program counter
 	unsigned int cycles = 0; // Number of elapsed cycles

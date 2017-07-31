@@ -21,9 +21,14 @@ void Memory::memoryError(int address) {
 
 void Memory::writeByte(int address, byte data) {
 	try {
-		this->memory.at(address) = data; 
-		if ((address >= MMIO_START) && (address <= MMIO_END))  {
-			this->memory.at(address + MMIO_OFFSET) = data; // mirror MMIO data
+		this->memory.at(address) = data;
+
+		if (maps.size()) { // handle mirroring of ranges
+			auto end = maps.end();
+			for (auto i = maps.begin(); i != end; i++) {
+				MirroredRange * curr = *i;
+				if (address >= curr->start && address < curr->end) this->memory.at(address + curr->offset) = data;
+			}
 		}
 	}
 	catch (const std::out_of_range& e) { memoryError(address); }

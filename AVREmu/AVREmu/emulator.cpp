@@ -7,10 +7,9 @@ Emulator::Emulator() {
 	for (int i = 0; i < CONFIGSIZE; i++) {
 		this->config.push_back(false);
 	}
-}
-
-Emulator::Emulator(Memory * mem) : Emulator() {
-	this->mem = mem;
+	for (int i = 0; i < MEMSIZE; i++) {
+		this->mem.push_back(nullptr);
+	}
 }
 
 Emulator::~Emulator() {
@@ -34,31 +33,31 @@ unsigned int Emulator::clockSubscribe(Plugin * client) {
 	return subscribers.size()-1;
 }
 
-void Emulator::writeByte(int address, byte data) {
-	this->mem->writeByte(address, data);
+void Emulator::writeByte(int address, byte data, Memtype memory /* 0 */) {
+	this->mem[memory]->writeByte(address, data);
 }
 
-void Emulator::writeWord(int address, word data) {
-	this->mem->writeWord(address, data);
+void Emulator::writeWord(int address, word data, Memtype memory /* 0 */) {
+	this->mem[memory]->writeWord(address, data);
 }
 
-byte Emulator::readByte(int address) {
-	return this->mem->readByte(address);
+byte Emulator::readByte(int address, Memtype memory /* 0 */) {
+	return this->mem[memory]->readByte(address);
 }
 
-word Emulator::readWord(int address) {
-	return this->mem->readWord(address);
+word Emulator::readWord(int address, Memtype memory /* 0 */) {
+	return this->mem[memory]->readWord(address);
 }
 
-void Emulator::setBit(int address, int bitnum) {
-	this->mem->setBit(address, bitnum);
+void Emulator::setBit(int address, int bitnum, Memtype memory /* 0 */) {
+	this->mem[memory]->setBit(address, bitnum);
 }
-void Emulator::clearBit(int address, int bitnum) {
-	this->mem->clearBit(address, bitnum);
+void Emulator::clearBit(int address, int bitnum, Memtype memory /* 0 */) {
+	this->mem[memory]->clearBit(address, bitnum);
 }
 
-int Emulator::readBit(int address, int bitnum) {
-	return this->mem->readBit(address, bitnum);
+int Emulator::readBit(int address, int bitnum, Memtype memory /* 0 */) {
+	return this->mem[memory]->readBit(address, bitnum);
 }
 
 
@@ -67,7 +66,8 @@ void Emulator::handleInterrupts() {
 }
 
 void Emulator::step() {
-	if ((mem->readBit(0x5F, 7)) && (cycles % interruptInterval == 0)) handleInterrupts();
+	if ((mem[0]->readBit(0x5F, 7)) && (cycles % interruptInterval == 0)) handleInterrupts();
+	// TODO: Should move to calling generateState/applyState to ensure all operations are sequential
 	tick();
 }
 
@@ -97,12 +97,18 @@ void Emulator::configure(Config conf, bool state) {
 	}
 }
 
+void Emulator::setMemory(Memory * mem, Memtype memory /* PROGRAM */) {
+	this->mem[memory] = mem;
+}
+
 bool Emulator::getConfig(Config conf) {
 	return this->config.at(conf);
 }
 
-void Emulator::loadProgram(const char * progFile, int offset /* 0 */) {
+void Emulator::loadProgram(const char * progFile) {
 	std::cout << "[Host] Loading program from '" << progFile << "'..." << std::endl;
+
+	int total = 0;
 
 	int addr = 0x00;
 	byte x[2];
@@ -110,17 +116,93 @@ void Emulator::loadProgram(const char * progFile, int offset /* 0 */) {
 	std::fstream f;
 	f.open(progFile);
 
-	f.seekg(offset-1);
+	// extract IHEX header
 
-	while (f) {
-		f.read((char *)x, 2);
-		word y = (x[1] << 8) | x[0];
+	char type = f.peek();
 
-		this->writeWord(addr, y);
-		addr += 2;
+	if (type == ':') {
+		std::cout << "Intel IHEX file detected." << std::endl;
+
+		std::string types[5] = { ".DATA", "EOF", ".SEGMENT_E", ".SEGMENT_START", ".ADDRESS" };
+
+		// : 0e 0000 00 00e204b903b91fef1a95f1f3fbcf [Checksum]
+
+		auto ascii2hex = [](char ascii) {
+			if ((ascii >= '0') && (ascii <= '9'))
+				ascii = ascii - '0';
+			if ((ascii >= 'a') && (ascii <= 'f'))
+				ascii = (ascii + 10) - 'a';
+			if ((ascii >= 'A') && (ascii <= 'F'))
+				ascii = (ascii + 10) - 'A';
+			return ascii;
+		};
+
+		auto readiHexByte = [&ascii2hex](char * nibbles)->byte {
+			nibbles[0] = ascii2hex(nibbles[0]);
+			nibbles[1] = ascii2hex(nibbles[1]);
+			byte result = (nibbles[0] << 4) | nibbles[1];
+			return result;
+		};
+		
+		struct IHEXheader {
+			char startCode;
+			char count[2];
+			char address[4];
+			char recordType[2];
+		} header;
+
+		int recordType = 0;
+
+		while (recordType != 1) {
+			f.read((char*)&header, 9);
+
+			int offset = (readiHexByte(header.address) << 8) | readiHexByte(&header.address[2]);
+			recordType = readiHexByte(header.recordType);
+			int count = readiHexByte(header.count);
+
+			std::cout << "Processing " << types[recordType]
+				<< " (" << std::dec << count << " bytes, offset 0x"
+				<< std::hex << offset
+				<<")... ";
+
+			addr = offset;
+
+			if (recordType == 0) {
+				bool h = false;
+				byte high;
+
+				f.read((char *)x, 2);
+
+				for (int i = 0; i < count; i++) {
+					if (h) {
+						word y = (high << 8) | readiHexByte((char*)x);
+
+						this->writeWord(addr, y, Emulator::PROGRAM);
+						addr += 2;
+
+						f.read((char *)x, 2);
+						h = !h;
+					}
+
+					else {
+						high = readiHexByte((char*)x);
+						h = !h;
+						f.read((char *)x, 2);
+					}
+				}
+
+				std::cout << "Checksum OK." << std::endl;
+				f.seekg((int)f.tellg() + 2); // skip \n
+				total += count;
+			}
+			else {
+				std::cout << "Type is " << types[recordType] << "; skipping " << count << " bytes" << std::endl;
+				f.seekg((int)f.tellg() + count);
+			}
+		}
 	}
 
-	std::cout << "[Host] " << addr - 2 << " bytes loaded." << std::endl;
+	std::cout << "[Host] " << std::dec << total << " bytes loaded." << std::endl;
 
 	f.close();
 }

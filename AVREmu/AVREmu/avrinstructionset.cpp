@@ -137,9 +137,8 @@ int AVRInstructionSet::retrieve() {
 	std::stringstream msg;
 
 	try {
-
 		// retrieve
-		inst = host->readWord(host->pc);
+		inst = host->readWord(host->pc, Emulator::PROGRAM);
 
 		if (host->getConfig(Emulator::VERBOSE))
 			msg << "Read instruction 0x" << std::hex << host->pc << ": 0x" << inst;
