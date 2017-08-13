@@ -1,6 +1,7 @@
 #include "Plugin.h"
 #include "emulator.h"
 #include <string>
+#include <sstream>
 
 class AVRInstructionSet : public Plugin {
 public:
@@ -78,14 +79,16 @@ private:
 	byte sreg = 0xFF;			// new sreg; ANDed with old after instructions.
 								//Bits stay set unless explicitly cleared.
 
-	std::string opstring = "Unknown opcode"; // overwritten by recognised ops
+	std::stringstream opstring; // overwritten by recognised ops
+	std::stringstream msg;
+
 	Op operation;
 	ResultMode mode;
 	void operands3bit(word * d, word * r, word inst);
 	void operands4bit(word * d, word * r, word inst);
 	void operands5bit(word * d, word * r, word inst);
 	void operand5bit(word * d, word inst);
-	void operand24bit(word * d, word inst);
+	void operand22bit(dword * addr, word inst, word inst2);
 
 	void operands4bitAndConstant(word * d, word * k, word inst);
 	void operands5bitAnd3bit(word * d, word * k, word inst);

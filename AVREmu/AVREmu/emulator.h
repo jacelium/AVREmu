@@ -4,12 +4,15 @@
 #include "opset.h"
 #include "plugin.h"
 #include <iostream>
+#include <sstream>
 #include <cstdint>
+#include <string>
 
 class Emulator {
 public:
 	enum State {RUN, STOP, BREAK, STATESIZE};
 	enum Config {VERBOSE, CONFIGSIZE};
+	enum Loglevel {FATAL, WARN, INFO, ALL, LOGLEVELSIZE};
 
 	enum Memtype {SRAM, PROGRAM, EEPROM, MEMSIZE};
 
@@ -32,6 +35,9 @@ public:
 	void setPC(int pc);
 	State getState();
 	void tick();
+	void log(std::string logString, Loglevel priority = INFO);
+
+	int logLevel = 3;
 
 	void writeByte(int address, byte data, Memtype memory = SRAM);
 	void writeWord(int address, word data, Memtype memory = SRAM);

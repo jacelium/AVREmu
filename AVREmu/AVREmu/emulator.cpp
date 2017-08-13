@@ -16,8 +16,11 @@ Emulator::~Emulator() {
 }
 
 void Emulator::tick() {
-	if (this->getConfig(Emulator::VERBOSE)) std::cout << "[Host] Tick..." << std::endl;
-
+	std::stringstream msg;
+	msg << " Tick...";
+	log(msg.str(), INFO);
+	msg.str(std::string());
+		
 	cycles++;
 
 	auto end = subscribers.end();
@@ -106,7 +109,10 @@ bool Emulator::getConfig(Config conf) {
 }
 
 void Emulator::loadProgram(const char * progFile) {
-	std::cout << "[Host] Loading program from '" << progFile << "'..." << std::endl;
+	std::stringstream msg;
+	msg << "[Host] Loading program from '" << progFile << "'..." << std::endl;
+	this->log(msg.str());
+
 
 	int total = 0;
 
@@ -175,7 +181,7 @@ void Emulator::loadProgram(const char * progFile) {
 
 				for (int i = 0; i < count; i++) {
 					if (h) {
-						word y = (high << 8) | readiHexByte((char*)x);
+						word y = (readiHexByte((char*)x) << 8) | high;
 
 						this->writeWord(addr, y, Emulator::PROGRAM);
 						addr += 2;
@@ -211,3 +217,8 @@ unsigned int Emulator::movePC(int offset /* 1 */) {
 	this->pc += (offset * instructionSize);
 	return this->pc;
 }
+
+void Emulator::log(std::string logString, Loglevel priority /* 3 */) {
+	if (priority <= this->logLevel) std::cout << logString << std::endl;
+}
+

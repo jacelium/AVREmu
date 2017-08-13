@@ -264,7 +264,7 @@ void main() {
 		emulator.loadProgram(".\\test2.hex");
 
 
-		dumpRaw(&mem, 0x00, 64);
+		dumpRaw(&mem, 0x00, 128);
 		dumpRaw(&mem, 0x3e, 2);
 		emulator.run();
 		/*for (int i = 0; i < 4; i++) { 

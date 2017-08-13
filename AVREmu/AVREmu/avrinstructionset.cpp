@@ -1,7 +1,6 @@
 
 #include <iostream>
 #include "avrinstructionset.h"
-#include <sstream>
 
 void AVRInstructionSet::buildNewSreg8() {
 	// C: (Rd7 AND Rr7 OR Rr7 AND !R7 or !R7 AND !R0)
@@ -97,8 +96,28 @@ void AVRInstructionSet::operand5bit(word * d, word inst) {
 	*d = (inst & d5bit) >> 4;
 }
 
-void AVRInstructionSet::operand24bit(word * d, word inst) {
+// [Data] Register direct, 1reg - Rd 4..0
 
+// [Data] Register direct, 2reg - Rr 9..5 Rd 4..0
+
+
+// [Data] IO direct - Rd/Rr in .. , address in 5..0.
+
+
+// [Data] Data direct - Rd/Rd in 19..16, address in 15..0
+
+// [Data] Data indirect w/ displacement: Rd/Rr 10..6, q 5..0
+
+// [Program] 12-bit relative addressing for RJMP/RCALL etc.
+
+void operands12bit(word * addr, word inst) {
+	*addr = inst & 0x0FFF;
+}
+
+// [Program] 22-bit immediate program addressing for JMP/CALL etc.
+
+void AVRInstructionSet::operand22bit(dword * absaddr, word inst, word inst2) {
+	*absaddr = ((inst & d5bit) << 5) | ((inst & 0x01) << 8) | inst2;
 }
 
 void AVRInstructionSet::operands4bitAndConstant(word * d, word * k, word inst) {
@@ -134,15 +153,14 @@ void AVRInstructionSet::generateState() {
 
 int AVRInstructionSet::retrieve() {
 	int wordCount = 1;
-	std::stringstream msg;
 
 	try {
 		// retrieve
 		inst = host->readWord(host->pc, Emulator::PROGRAM);
-
-		if (host->getConfig(Emulator::VERBOSE))
-			msg << "Read instruction 0x" << std::hex << host->pc << ": 0x" << inst;
-			log(msg.str());
+		
+		msg << "Read instruction 0x" << std::hex << host->pc << ": 0x" << inst << std::endl;
+		host->log(msg.str(), Emulator::INFO);
+		msg.str(std::string());
 
 		//decode
 
@@ -513,7 +531,7 @@ int AVRInstructionSet::retrieve() {
 
 		case 0x0E:
 			operation = LDI;
-			if (inst & 0x0F0F) operation = SER;
+			if ((inst & 0x0F0F) == 0x0F0F) operation = SER;
 			break;
 
 		case 0x0F:
@@ -546,12 +564,12 @@ void AVRInstructionSet::applyState() {
 		resultByte = opd + opr;
 		host->writeByte(d, resultByte);
 
-		opstring = "ADD " + std::to_string(d) + ", " + std::to_string(r);
+		opstring << "ADD " << std::hex << d << ", "  << r;
 		break;
 
 	case ADC:
 
-			opstring = "ADC";
+			opstring << "ADC";
 
 		break;
 
@@ -567,13 +585,13 @@ void AVRInstructionSet::applyState() {
 
 	case SUB:
 
-		opstring = "SUB";
+		opstring << "SUB";
 
 		break;
 
 	case SUBI:
 
-		opstring = "SUBI";
+		opstring << "SUBI";
 
 		break;
 
@@ -591,7 +609,7 @@ void AVRInstructionSet::applyState() {
 		//	Z = (R == 0)
 		//	C = (!Rd7 AND Rr7) + (Rr7 AND R7) OR (R7 AND !Rd7)
 
-		opstring = "SBC " + std::to_string(d) + ", " + std::to_string(r);
+		opstring << "SBC " << d << ", " << r;
 
 		break;
 
@@ -609,7 +627,7 @@ void AVRInstructionSet::applyState() {
 		//	Z
 		//	C
 
-		opstring = "SBCI " + std::to_string(d) + ", " + std::to_string(k);
+		opstring << "SBCI " << d << ", " <<k;
 
 		break;
 
@@ -628,7 +646,7 @@ void AVRInstructionSet::applyState() {
 		// if r == d then TST
 
 
-		opstring = "AND";
+		opstring << "AND";
 
 		break;
 
@@ -642,7 +660,7 @@ void AVRInstructionSet::applyState() {
 
 		// Todo: SREG update, 
 
-		opstring = "ANDI " + std::to_string(d) + ", $" + std::to_string(k);
+		opstring << "ANDI " << d << ", $" <<k;
 		break;
 
 	case OR: // 1 cycle
@@ -652,7 +670,7 @@ void AVRInstructionSet::applyState() {
 		host->writeByte(d, resultByte);
 
 		// todo: SREG update, S = N^V V = 0 N = R7, Z = (R == 0)
-		opstring = "OR " + std::to_string(d) + ", " + std::to_string(r);
+		opstring << "OR " << d << ", " << r;
 
 		break;
 
@@ -664,7 +682,7 @@ void AVRInstructionSet::applyState() {
 		host->writeByte(d, resultByte);
 
 		// Todo: SREG update, S = N^V, V = 0, N = R7, Z = (R == 0)
-		opstring = "ORI " + std::to_string(d) + ", $" + std::to_string(k);
+		opstring << "ORI " << d << ", $" << k;
 		break;
 
 	case EOR:
@@ -675,14 +693,14 @@ void AVRInstructionSet::applyState() {
 
 		host->writeByte(d, resultByte);
 
-		if (r == d) opstring = "CLR " + std::to_string(d);
-		else opstring = "EOR " + std::to_string(d) + ", " + std::to_string(r);
+		if (r == d) opstring << "CLR " << d;
+		else opstring << "EOR " << d << ", " << r;
 
 		break;
 
 	case COM:
 
-		opstring = "COM";
+		opstring << "COM";
 
 		break;
 
@@ -690,6 +708,8 @@ void AVRInstructionSet::applyState() {
 		operand5bit(&d, inst);
 		resultByte = ~(host->readByte(d)) + 1;
 		host->writeByte(d, resultByte);
+
+		opstring << "NEG " << d;
 		break;
 
 	case INC:
@@ -703,6 +723,8 @@ void AVRInstructionSet::applyState() {
 		// N: R7
 		// Z: = (R == 0)
 
+		opstring << "INC " << d;
+
 		break;
 
 	case DEC:
@@ -715,12 +737,14 @@ void AVRInstructionSet::applyState() {
 		// V: !R7 AND R6 AND R5 AND R4 AND R3 AND R2 AND R1 AND R0
 		// N: R7
 		// Z: = (R == 0)
+		
+		opstring << "DEC " << d;
 
 		break;
 
 	case SER:
 
-		opstring = "SER";
+		opstring << "SER";
 
 		break;
 
@@ -731,7 +755,7 @@ void AVRInstructionSet::applyState() {
 		host->writeWord(r0, resultWord);
 
 		// Todo: Sreg updates. C = R15, z = (R == 0)
-		opstring = "MUL " + std::to_string(d) + ", " + std::to_string(r);
+		opstring << "MUL " << d << ", " << r;
 
 		break;
 
@@ -742,7 +766,7 @@ void AVRInstructionSet::applyState() {
 		host->writeWord(d, resultWord);
 
 		// todo: SREG update C = R15, Z = (R == 0)
-		opstring = "MULS " + std::to_string(d) + ", " + std::to_string(r);
+		opstring << "MULS " << d << ", " << r;
 		break;
 
 	case MULSU: // 2 cycles
@@ -752,25 +776,26 @@ void AVRInstructionSet::applyState() {
 		host->writeWord(d, resultWord);
 
 		// todo: SREG update C = R15, Z = (R == 0)
-		opstring = "MULSU " + std::to_string(d) + ", " + std::to_string(r);
+		opstring << "MULSU " << d << ", " << r;
 
 		break;
 
 	case FMUL:
 
-		opstring = "FMUL";
+		opstring << "FMUL";
 
 		break;
 
-	case FMULS:
+	case
+	FMULS:
 
-		opstring = "FMULS";
+		opstring << "FMULS";
 
 		break;
 
 	case FMULSU:
 
-		opstring = "FMULSU";
+		opstring << "FMULSU";
 
 		break;
 
@@ -779,11 +804,11 @@ void AVRInstructionSet::applyState() {
 #pragma region Branch instructions
 
 	case RJMP: // 2 cycles
-		operand24bit(&d, inst);
+		operand22bit(&absaddr, inst, host->readWord(host->pc));
 
 		host->setPC(d);
 
-		opstring = "RJMP " + std::to_string(d);
+		opstring << "RJMP " << d;
 
 		break;
 
@@ -791,20 +816,21 @@ void AVRInstructionSet::applyState() {
 		addr = host->readWord(rZ);
 		host->setPC(addr);
 
-		opstring = "IJMP > " + std::to_string(addr);
+		opstring << "IJMP > " <<addr;
 
 		break;
 
 	case JMP:
-		addr = ((inst & d5bit) << 13) | ((inst & 0x01) << 8) | host->readByte(host->pc);
-		
-		host->setPC(addr);
 
-		opstring = "JMP > " + std::to_string(addr);
+		operand22bit(&absaddr, inst, host->readWord(host->pc, Emulator::PROGRAM));
+
+		host->setPC(absaddr * host->instructionSize);
+
+		opstring << "JMP > " << (absaddr * host->instructionSize);
 		break;
 
-	case RCALL: // 3 cycles on 16bit PC, 4 cycles on 22bit PC. Assuming 16-bit.
-		operand24bit(&d, inst);
+	case RCALL: // 3 cycles on 16bit PC
+		operand22bit(&absaddr, inst, host->readWord(host->pc));
 
 		// Test: SP is 0x0F, push moves to 0x0D, 0x0E/0x0F are new contents.
 		host->writeWord(host->readWord(SP) - 1, host->movePC()); // Store return address...
@@ -813,7 +839,7 @@ void AVRInstructionSet::applyState() {
 		// Call:
 		host->setPC(d);
 
-		opstring = "RCALL " + std::to_string(d);
+		opstring << "RCALL " << d;
 
 		break;
 
@@ -825,7 +851,7 @@ void AVRInstructionSet::applyState() {
 
 		host->setPC(addr);
 
-		opstring = "ICALL > " + std::to_string(addr);
+		opstring << "ICALL > " << addr;
 		break;
 
 	case CALL:
@@ -837,7 +863,7 @@ void AVRInstructionSet::applyState() {
 
 		host->setPC(addr);
 
-		opstring = "CALL > " + std::to_string(addr);
+		opstring << "CALL > " << addr;
 
 		break;
 
@@ -845,7 +871,7 @@ void AVRInstructionSet::applyState() {
 		host->setPC(host->readWord(SP) + 1);
 		host->writeWord(host->readWord(SP), host->readWord(SP) + 2); // For 22bit this is 3 bytes rather than 2
 
-		opstring = "RET";
+		opstring << "RET";
 		break;
 
 	case RETI: // 4 cycles on 16bit PC, 5 on 22bit PC
@@ -854,7 +880,7 @@ void AVRInstructionSet::applyState() {
 
 		host->setBit(SREG, interrupt);
 
-		opstring = "RETI";
+		opstring << "RETI";
 
 		break;
 
@@ -866,38 +892,38 @@ void AVRInstructionSet::applyState() {
 			uncommit();
 		}
 
-		opstring = "CPSE " + std::to_string(d) + ", " + std::to_string(r);
+		opstring << "CPSE " << d << ", " << r;
 
 		break;
 
 	case CP:
 
-		opstring = "CP ";
+		opstring << "CP ";
 
 		break;
 
 	case CPC:
 
-		opstring = "CPC ";
+		opstring << "CPC ";
 
 		break;
 
 	case CPI:
 		operands4bitAndConstant(&d, &r, inst);
 
-		opstring = "CPI " + std::to_string(d) + ", " + std::to_string(r);
+		opstring << "CPI " << d << ", " << r;
 
 		break;
 
 	case SBRC:
 
-		opstring = "SBRC ";
+		opstring << "SBRC ";
 
 		break;
 
 	case SBRS:
 
-		opstring = "SBRS ";
+		opstring << "SBRS ";
 
 		break;
 
@@ -909,7 +935,7 @@ void AVRInstructionSet::applyState() {
 			uncommit();
 		}
 
-		opstring = "SBIC " + std::to_string(d) + ", " + std::to_string(k);
+		opstring << "SBIC " << d << ", " <<k;
 
 		break;
 
@@ -921,7 +947,7 @@ void AVRInstructionSet::applyState() {
 			uncommit();
 		}
 
-		opstring = "SBIS " + std::to_string(d) + ", " + std::to_string(k);
+		opstring << "SBIS " << d << ", " <<k;
 
 		break;
 
@@ -944,37 +970,37 @@ void AVRInstructionSet::applyState() {
 			host->movePC((int16_t)d);
 		}
 
-		opstring = std::to_string(d);
-
 		switch (r) {
 		case 0x00:
-			opstring = "BRCS " + opstring;
+			opstring << "BRCS ";
 			break;
 		case 0x01:
-			opstring = "BREQ " + opstring;
+			opstring << "BREQ ";
 			break;
 		case 0x02:
-			opstring = "BRMI " + opstring;
+			opstring << "BRMI ";
 			break;
 		case 0x03:
-			opstring = "BRVS " + opstring;
+			opstring << "BRVS ";
 			break;
 		case 0x04:
-			opstring = "BRLT " + opstring;
+			opstring << "BRLT ";
 			break;
 		case 0x05:
-			opstring = "BRHS " + opstring;
+			opstring << "BRHS ";
 			break;
 		case 0x06:
-			opstring = "BRTS " + opstring;
+			opstring << "BRTS ";
 			break;
 		case 0x07:
-			opstring = "BRIE " + opstring;
+			opstring << "BRIE ";
 			break;
 		default:
-			opstring = "BRBS " + opstring + ", " + std::to_string(r);
+			opstring << "BRBS " << r;
 			break;
 		}
+
+		opstring << std::hex << r << ", " << d;
 
 		break;
 
@@ -997,37 +1023,37 @@ void AVRInstructionSet::applyState() {
 			host->movePC((int16_t)d);
 		}
 
-		opstring = std::to_string(d);
-
 		switch (r) {
 		case 0x00:
-			opstring = "BRCC " + opstring;
+			opstring << "BRCC ";
 			break;
 		case 0x01:
-			opstring = "BRNE " + opstring;
+			opstring << "BRNE ";
 			break;
 		case 0x02:
-			opstring = "BRPL " + opstring;
+			opstring << "BRPL ";
 			break;
 		case 0x03:
-			opstring = "BRVC " + opstring;
+			opstring << "BRVC ";
 			break;
 		case 0x04:
-			opstring = "BRGE " + opstring;
+			opstring << "BRGE ";
 			break;
 		case 0x05:
-			opstring = "BRHC " + opstring;
+			opstring << "BRHC ";
 			break;
 		case 0x06:
-			opstring = "BRTT " + opstring;
+			opstring << "BRTT ";
 			break;
 		case 0x07:
-			opstring = "BRID " + opstring;
+			opstring << "BRID ";
 			break;
 		default:
-			opstring = "BRBC " + opstring + ", " + std::to_string(r);
+			opstring << "BRBC ";
 			break;
 		}
+
+		opstring << std::hex << r << ", " << d;
 
 		break;
 
@@ -1040,7 +1066,7 @@ void AVRInstructionSet::applyState() {
 
 		host->setBit(d, k);
 
-		opstring = "SBI " + std::to_string(d) + ", " + std::to_string(k);
+		opstring << "SBI " << d << ", " <<k;
 
 		break;
 
@@ -1049,25 +1075,25 @@ void AVRInstructionSet::applyState() {
 
 		host->clearBit(d, k);
 
-		opstring = "CBI " + std::to_string(d) + ", " + std::to_string(k);
+		opstring << "CBI " << d << ", " <<k;
 
 		break;
 
 	case LSL:
 
-		opstring = "LSL ";
+		opstring << "LSL ";
 
 		break;
 
 	case LSR:
 
-		opstring = "LSR ";
+		opstring << "LSR ";
 
 		break;
 
 	case ROL:
 
-		opstring = "ROL ";
+		opstring << "ROL ";
 
 		break;
 
@@ -1078,13 +1104,13 @@ void AVRInstructionSet::applyState() {
 
 		// Todo: SREG update S = N^V, V = N^C (after), N = R7, Z = (R == 0), C = Rd0
 
-		opstring = "ROR " + std::to_string(d);
+		opstring << "ROR " << d;
 
 		break;
 
 	case ASR:
 
-		opstring = "ASR ";
+		opstring << "ASR ";
 
 		break;
 
@@ -1094,7 +1120,7 @@ void AVRInstructionSet::applyState() {
 		opd = host->readByte(d);
 		host->writeByte(d, ((opd & 0xFF00) >> 4) | ((opd & 0x00FF) << 4));
 
-		opstring = "SWAP " + std::to_string(d);
+		opstring << "SWAP " << d;
 		break;
 
 	case BSET:
@@ -1102,28 +1128,28 @@ void AVRInstructionSet::applyState() {
 
 		switch (nib1) {
 		case 0x00:
-			opstring = "SEC";
+			opstring << "SEC";
 			break;
 		case 0x01:
-			opstring = "SEZ";
+			opstring << "SEZ";
 			break;
 		case 0x02:
-			opstring = "SEN";
+			opstring << "SEN";
 			break;
 		case 0x03:
-			opstring = "SEV";
+			opstring << "SEV";
 			break;
 		case 0x04:
-			opstring = "SES";
+			opstring << "SES";
 			break;
 		case 0x05:
-			opstring = "SEH";
+			opstring << "SEH";
 			break;
 		case 0x06:
-			opstring = "SET";
+			opstring << "SET";
 			break;
 		case 0x07:
-			opstring = "SEI";
+			opstring << "SEI";
 			break;
 		}
 		break;
@@ -1132,41 +1158,41 @@ void AVRInstructionSet::applyState() {
 		host->clearBit(SREG, d);
 		switch (nib1) {
 		case 0x08:
-			opstring = "CLC";
+			opstring << "CLC";
 			break;
 		case 0x09:
-			opstring = "CLZ";
+			opstring << "CLZ";
 			break;
 		case 0x0A:
-			opstring = "CLN";
+			opstring << "CLN";
 			break;
 		case 0x0B:
-			opstring = "CLV";
+			opstring << "CLV";
 			break;
 		case 0x0C:
-			opstring = "CLS";
+			opstring << "CLS";
 			break;
 		case 0x0D:
-			opstring = "CLH";
+			opstring << "CLH";
 			break;
 		case 0x0E:
-			opstring = "CLT";
+			opstring << "CLT";
 			break;
 		case 0x0F:
-			opstring = "CLI";
+			opstring << "CLI";
 			break;
 		}
 		break;
 
 	case BST:
 
-		opstring = "BST ";
+		opstring << "BST ";
 
 		break;
 
 	case BLD:
 
-		opstring = "BLD ";
+		opstring << "BLD ";
 
 		break;
 
@@ -1178,7 +1204,7 @@ void AVRInstructionSet::applyState() {
 		operands5bit(&d, &r, inst);
 		host->writeByte(d, host->readByte(r));
 
-		opstring = "MOV " + std::to_string(d) + ", " + std::to_string(r);
+		opstring << "MOV " << d << ", " << r;
 
 		break;
 
@@ -1187,30 +1213,30 @@ void AVRInstructionSet::applyState() {
 
 		host->writeWord(d, host->readWord(r));
 
-		opstring = "MOVW " + std::to_string(d) + ", " + std::to_string(r);
+		opstring << "MOVW " << d << ", " << r;
 		break;
 
 	case LDI:
 
-		opstring = "LDI ";
+		opstring << "LDI ";
 
 		break;
 
 	case LDX:
 
-		opstring = "LDX ";
+		opstring << "LDX ";
 
 		break;
 
 	case LDXp:
 
-		opstring = "LDX+ ";
+		opstring << "LDX+ ";
 
 		break;
 
 	case LDmX:
 
-		opstring = "LD-X ";
+		opstring << "LD-X ";
 
 		break;
 
@@ -1218,20 +1244,20 @@ void AVRInstructionSet::applyState() {
 	case LDDY:
 		addr = host->readWord(rY) + k;
 
-		opstring = "LDY ";
+		opstring << "LDY ";
 
-		if (k != 0) opstring += "+k";
+		if (k != 0) opstring << "+k";
 		break;
 
 	case LDYp:
 
-		opstring = "LDY+";
+		opstring << "LDY+";
 
 		break;
 
 	case LDmY:
 
-		opstring = "LD-Y";
+		opstring << "LD-Y";
 
 		break;
 		
@@ -1241,44 +1267,44 @@ void AVRInstructionSet::applyState() {
 		addr = host->readWord(rZ) + k;
 		host->writeByte(d, host->readByte(addr));
 
-		opstring = "LDZ " + std::to_string(d);
-		if (k != 0) opstring += " +k " + std::to_string(k);
+		opstring << "LDZ " << d;
+		if (k != 0) opstring << " +k " << k;
 
 		break;
 	
 	case LDZp:
 
-		opstring = "LDZ+";
+		opstring << "LDZ+";
 
 		break;
 
 	case LDmZ:
 
-		opstring = "LD-Z";
+		opstring << "LD-Z";
 
 		break;
 
 	case LDS:
 
-		opstring = "LDS";
+		opstring << "LDS";
 
 		break;
 
 	case STX:
 
-		opstring = "STX";
+		opstring << "STX";
 
 		break;
 
 	case STXp:
 
-		opstring = "STX+";
+		opstring << "STX+";
 
 		break;
 
 	case STmX:
 
-		opstring = "ST-X";
+		opstring << "ST-X";
 
 		break;
 
@@ -1287,22 +1313,22 @@ void AVRInstructionSet::applyState() {
 		d = host->readWord(rY) + k;
 
 
-		opstring = "STY ";
+		opstring << "STY ";
 
 
-		if (k != 0) opstring += "+k";
+		if (k != 0) opstring << "+k";
 		break;
 
 	case STYp:
 
-		opstring = "STY+";
+		opstring << "STY+";
 
 
 		break;
 
 	case STmY:
 
-		opstring = "ST-Y";
+		opstring << "ST-Y";
 
 		break;
 
@@ -1311,44 +1337,44 @@ void AVRInstructionSet::applyState() {
 		addr = host->readWord(rZ) + k;
 		host->writeByte(addr, host->readByte(d));
 
-		opstring = "STDZ " + std::to_string(d);
-		if (k != 0) opstring += " +k " + std::to_string(k);
+		opstring << "STDZ " << d;
+		if (k != 0) opstring << " +k " <<k;
 
 		break;
 
 	case STZp:
 
-		opstring = "STZ+ ";
+		opstring << "STZ+ ";
 
 		break;
 
 	case STmZ:
 
-		opstring = "ST-Z ";
+		opstring << "ST-Z ";
 
 		break;
 
 	case STS:
 
-		opstring = "STS ";
+		opstring << "STS ";
 
 		break;
 
 	case LPM:
 
-		opstring = "LPM";
+		opstring << "LPM";
 
 		break;
 
 	case LPMp:
 
-		opstring = "LPMZ+";
+		opstring << "LPMZ+";
 
 		break;
 
 	case SPM:
 
-		opstring = "SPM";
+		opstring << "SPM";
 
 		break;
 
@@ -1359,7 +1385,7 @@ void AVRInstructionSet::applyState() {
 
 		host->writeByte(d, host->readByte(r));
 
-		opstring = "IN " + std::to_string(d) + ", " + std::to_string(r);
+		opstring << "IN " << d << ", " << r;
 
 		break;
 
@@ -1370,7 +1396,7 @@ void AVRInstructionSet::applyState() {
 
 		host->writeByte(r, host->readByte(d));
 
-		opstring = "OUT " + std::to_string(d) + ", " + std::to_string(r);
+		opstring << "OUT " << d << ", " << r;
 
 		break;
 
@@ -1380,7 +1406,7 @@ void AVRInstructionSet::applyState() {
 		host->writeByte(host->readWord(SP), host->readByte(d));
 		host->writeWord(SP, host->readWord(SP) - 1);
 
-		opstring = "PUSH " + std::to_string(d);
+		opstring << "PUSH " << d;
 
 		break;
 
@@ -1390,7 +1416,7 @@ void AVRInstructionSet::applyState() {
 		host->writeWord(SP, host->readWord(SP) + 1);
 		host->writeByte(host->readWord(SP), host->readByte(d));
 
-		opstring = "POP " + std::to_string(d);
+		opstring << "POP " << d;
 
 		break;
 #pragma endregion
@@ -1399,25 +1425,25 @@ void AVRInstructionSet::applyState() {
 
 	case NOP: // 1 cycle
 
-		opstring = "NOP";
+		opstring << "NOP";
 
 		break;
 
 	case SLEEP:
 
-		opstring = "SLEEP";
+		opstring << "SLEEP";
 
 		break;
 
 	case WDR:
 
-		opstring = "WDR";
+		opstring << "WDR";
 
 		break;
 
 	case BREAK:
 		host->setState(Emulator::STOP);
-		opstring = "BREAK";
+		opstring << "BREAK";
 		break;
 
 #pragma endregion
@@ -1430,14 +1456,15 @@ void AVRInstructionSet::applyState() {
 
 	host->writeByte(SREG, sreg); // Replace SREG with new sreg
 
-	if (host->getConfig(Emulator::VERBOSE)) {
-		log("-> " + opstring + " " + std::to_string(inst));
-	}
+	
+	msg << "-> " << opstring.str() << std::endl;
+	host->log(msg.str(), Emulator::INFO);
+	msg.str(std::string());
 
 	// reset sentinel values for transient stuff
 	sreg = 0xFF;
 	operation = UNKN;
-	opstring = "Unknown opcode";
+	opstring.str(std::string());
 }
 std::string AVRInstructionSet::name() {
 	return "AVR Instruction set";
